@@ -11,29 +11,34 @@
 <body>
 <div id="app">
   <header id="topbar">
-    <span id="app-title"></span>
-    <span id="demo-badge" class="hidden"></span>
-    <label class="small" for="user-select" id="user-label"></label>
-    <select id="user-select"></select>
-    <div class="seg" id="dept-seg" role="group">
-      <button data-dept="kitchen" type="button"></button>
-      <button data-dept="cafeteria" type="button"></button>
-      <button data-dept="all" type="button"></button>
+    <div class="hrow hrow1">
+      <span id="app-title" class="htitle"></span>
+      <span id="demo-badge" class="hidden"></span>
+      <label class="small" for="user-select" id="user-label"></label>
+      <select id="user-select"></select>
+      <div class="seg" id="dept-seg" role="group">
+        <button data-dept="kitchen" type="button"></button>
+        <button data-dept="cafeteria" type="button"></button>
+        <button data-dept="all" type="button"></button>
+      </div>
+      <button id="quit-btn" type="button" class="btn-danger"></button>
     </div>
-    <button id="day-prev" type="button" title="">&#9654;</button>
-    <button id="day-label" type="button" class="btn-secondary" style="font-weight:bold"></button>
-    <button id="day-next" type="button" title="">&#9664;</button>
-    <span id="day-chip"></span>
-    <span style="flex:1"></span>
-    <button id="quit-btn" type="button" class="btn-danger"></button>
+    <div class="hrow hrow2">
+      <nav id="tabbar">
+        <button class="tab" data-tab="close" type="button"></button>
+        <button class="tab" data-tab="report" type="button"></button>
+        <button class="tab" data-tab="archive" type="button"></button>
+        <button class="tab" data-tab="products" type="button"></button>
+        <button class="tab" data-tab="backup" type="button"></button>
+      </nav>
+      <div id="datenav">
+        <button id="day-prev" type="button" class="navbtn" title="">&#9654;</button>
+        <button id="day-label" type="button" class="btn-secondary"></button>
+        <button id="day-next" type="button" class="navbtn" title="">&#9664;</button>
+        <span id="day-chip"></span>
+      </div>
+    </div>
   </header>
-  <nav id="tabbar">
-    <button class="tab" data-tab="close" type="button"></button>
-    <button class="tab" data-tab="report" type="button"></button>
-    <button class="tab" data-tab="archive" type="button"></button>
-    <button class="tab" data-tab="products" type="button"></button>
-    <button class="tab" data-tab="backup" type="button"></button>
-  </nav>
   <main id="content"></main>
   <footer id="actionbar" class="hidden"></footer>
 </div>
@@ -46,6 +51,7 @@
 <script src="format.js"></script>
 <script src="dates.js"></script>
 <script src="ui.js"></script>
+<script src="uicheck.js"></script>
 <script src="screen-close.js"></script>
 <script src="screen-report.js"></script>
 <script src="screen-archive.js"></script>

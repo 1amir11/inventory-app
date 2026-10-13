@@ -114,7 +114,9 @@ KIOSK.archiveScreen = (function () {
 
   /* Read-only rendering of the day exactly as recorded. */
   function detailHtml(d) {
-    var h = '<table class="grid"><thead><tr><th>' + fmt.esc(STR.col_material) +
+    var h = '<table class="grid t-arch"><colgroup><col><col class="c-n">' +
+      '<col class="c-n"><col class="c-n"><col class="c-n"></colgroup>' +
+      '<thead><tr><th class="c-name">' + fmt.esc(STR.col_material) +
       "</th><th>" + fmt.esc(STR.col_opening) + "</th><th>" +
       fmt.esc(STR.col_received) + "</th><th>" + fmt.esc(STR.col_closing) +
       "</th><th>" + fmt.esc(STR.col_consumed) + "</th></tr></thead><tbody>";
@@ -129,7 +131,7 @@ KIOSK.archiveScreen = (function () {
       var close = (cnt.closing_base !== undefined && cnt.closing_base !== null)
         ? cnt.closing_base : null;
       h += '<tr class="' + (i % 2 ? "zebra" : "") + '">' +
-        '<td style="text-align:right">' + fmt.esc(c.name) + "</td>" +
+        '<td class="c-name" title="' + fmt.esc(c.name) + '">' + fmt.esc(c.name) + "</td>" +
         '<td class="num">' + fmt.int(open) + '</td><td class="num">' +
         fmt.int(c.received_base) + '</td><td class="num">' +
         (close === null ? "-" : fmt.int(close)) + '</td><td class="num"><b>' +

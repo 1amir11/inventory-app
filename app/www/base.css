@@ -1,7 +1,5 @@
-/* base.css - reset, layout shell, typography. No page scroll: the app is
-   exactly 1024x650, only .scroll regions scroll. */
-* { box-sizing: border-box; }
-
+/* base.css - reset, 1024x650 shell, typography. Only inner .scroll areas
+   ever scroll; the document itself never does. */
 html, body {
   margin: 0;
   padding: 0;
@@ -11,6 +9,7 @@ html, body {
 body {
   font-family: Tahoma, "Segoe UI", sans-serif;
   font-size: 16px;
+  line-height: 1.25;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
@@ -31,50 +30,75 @@ body {
   position: relative;
 }
 
+/* Header: two rows, 60px + 60px = 120px, never wraps. */
 #topbar {
-  height: 56px;
+  height: 120px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.hrow {
+  height: 60px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
-  box-shadow: var(--shadow);
 }
 
-#app-title {
+.hrow1 { border-bottom: 1px solid var(--border); }
+
+.htitle {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 20px;
   font-weight: bold;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#demo-badge {
-  background: var(--warning-tint);
-  color: var(--amber-chip-text);
-  border: 1px solid var(--warning);
-  border-radius: 8px;
-  padding: 2px 8px;
-  font-size: 14px;
-  white-space: nowrap;
-}
+.hrow1 > *:not(.htitle) { flex-shrink: 0; }
+
+#user-select { width: 200px; flex: none; }
+
+#dept-seg { flex: none; }
+
+#quit-btn { min-width: 140px; flex: none; }
 
 #tabbar {
-  height: 48px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: stretch;
-  padding: 0 8px;
   gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
+#datenav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+#day-label {
+  min-width: 240px;
+  text-align: center;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.navbtn { width: 48px; flex: none; padding: 0; }
+
 #content {
-  height: 546px;
+  height: 482px;
   overflow: hidden;
   position: relative;
 }
 
-#content.with-actionbar { height: 482px; }
+#content.with-actionbar { height: 418px; }
 
 .screen { height: 100%; overflow: hidden; padding: 8px; }
 

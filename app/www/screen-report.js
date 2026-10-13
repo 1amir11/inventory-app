@@ -120,13 +120,16 @@ KIOSK.reportScreen = (function () {
   }
 
   function productTable(lines) {
-    var h = '<table class="grid"><thead><tr><th>' + fmt.esc(STR.col_product) +
+    var h = '<table class="grid t-repprod"><colgroup><col><col class="c-qty">' +
+      '<col class="c-money"><col class="c-money"><col class="c-money"></colgroup>' +
+      '<thead><tr><th class="c-name">' + fmt.esc(STR.col_product) +
       "</th><th>" + fmt.esc(STR.col_qty) + "</th><th>" + fmt.esc(STR.revenue) +
       "</th><th>" + fmt.esc(STR.cost) + "</th><th>" + fmt.esc(STR.profit) +
       "</th></tr></thead><tbody>";
     lines.forEach(function (ln, i) {
-      h += '<tr class="' + (i % 2 ? "zebra" : "") + '"><td style="text-align:right">' +
-        fmt.esc(ln.name) + '</td><td class="num">' + fmt.int(ln.qty_sold) +
+      h += '<tr class="' + (i % 2 ? "zebra" : "") + '"><td class="c-name" title="' +
+        fmt.esc(ln.name) + '">' + fmt.esc(ln.name) +
+        '</td><td class="num">' + fmt.int(ln.qty_sold) +
         "</td><td>" + fmt.moneyHtml(ln.revenue) + "</td><td>" +
         fmt.moneyHtml(ln.cost) + "</td><td>" +
         fmt.moneyHtml(ln.profit, ln.profit < 0 ? "neg" : "pos") + "</td></tr>";
@@ -147,11 +150,14 @@ KIOSK.reportScreen = (function () {
     if (!rows.length) {
       return '<div class="muted">' + fmt.esc(STR.empty) + "</div>";
     }
-    var h = '<table class="grid"><thead><tr><th>' + fmt.esc(STR.col_material) +
+    var h = '<table class="grid t-var"><colgroup><col><col class="c-money">' +
+      '<col class="c-money"></colgroup><thead><tr><th class="c-name">' +
+      fmt.esc(STR.col_material) +
       "</th><th>" + fmt.esc(STR.col_diff_base) + "</th><th>" +
       fmt.esc(STR.col_diff_egp) + "</th></tr></thead><tbody>";
     rows.forEach(function (v, i) {
-      h += '<tr class="' + (i % 2 ? "zebra" : "") + '"><td style="text-align:right">' +
+      h += '<tr class="' + (i % 2 ? "zebra" : "") + '"><td class="c-name" title="' +
+        fmt.esc(v.material_name || ("#" + v.material_id)) + '">' +
         fmt.esc(v.material_name || ("#" + v.material_id)) +
         '</td><td class="num ' + (v.variance_base < 0 ? "neg" : "") + '">' +
         fmt.int(v.variance_base) + '</td><td>' +

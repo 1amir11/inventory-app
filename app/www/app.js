@@ -72,6 +72,10 @@ KIOSK.app = (function () {
     if (/(?:^|[?&])show=calendar(?:&|$)/.test(location.search || "")) {
       setTimeout(toggleCal, 300);
     }
+    /* ?uicheck=1 runs the layout self-check for tests/ui_check.js. */
+    if (/(?:^|[?&])uicheck=1(?:&|$)/.test(location.search || "")) {
+      setTimeout(function () { KIOSK.uicheck.write(state.tab); }, 2500);
+    }
   }
 
   /* First-run setup: create the named users, then continue. */
@@ -128,7 +132,20 @@ KIOSK.app = (function () {
         sel.appendChild(o);
       });
       if (!state.userId && state.users.length) {
-        state.userId = state.users[0].id;
+        /* Prefer the last used user so the dropdown never idles on the
+           placeholder; fall back to the first user. */
+        var last = null;
+        try { last = window.localStorage.getItem("ki_user"); } catch (e) { /* noop */ }
+        var found = false;
+        if (last) {
+          for (var i = 0; i < state.users.length; i++) {
+            if (String(state.users[i].id) === String(last)) {
+              state.userId = state.users[i].id;
+              found = true;
+            }
+          }
+        }
+        if (!found) state.userId = state.users[0].id;
       }
       sel.value = state.userId ? String(state.userId) : "";
       paintUsers();
@@ -279,6 +296,11 @@ KIOSK.app = (function () {
     }
     $("user-select").onchange = function () {
       state.userId = parseInt($("user-select").value, 10) || null;
+      try {
+        if (state.userId) {
+          window.localStorage.setItem("ki_user", String(state.userId));
+        }
+      } catch (e) { /* private mode etc: selection just doesn't persist */ }
     };
     $("day-prev").onclick = function () {
       setDate(KIOSK.dates.addDays(state.date, -1));

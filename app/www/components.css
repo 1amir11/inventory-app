@@ -1,14 +1,23 @@
-/* components.css - buttons, inputs, tables, cards, chips, dialogs, toasts. */
+/* components.css - ONE control system: every button/input/select is 48px.
+   Buttons: 3 variants, 2px borders, padding 0 20px, min-width 96px, nowrap. */
+
 button, .btn {
-  font-family: Tahoma, "Segoe UI", sans-serif;
+  font: inherit;
   font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  height: 48px;
   min-height: 48px;
-  padding: 6px 16px;
+  padding: 0 20px;
+  min-width: 96px;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 2px solid var(--border);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  flex-shrink: 0;
   transition: background-color 150ms, border-color 150ms;
 }
 
@@ -17,7 +26,7 @@ button:focus, .btn:focus, input:focus, select:focus, textarea:focus, a:focus {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-button:disabled, input:disabled, select:disabled {
+button:disabled, input:disabled, select:disabled, textarea:disabled {
   background: #E8ECF0;
   color: #8A97A3;
   cursor: not-allowed;
@@ -28,60 +37,100 @@ button:disabled, input:disabled, select:disabled {
   background: var(--primary);
   border-color: var(--primary);
   color: #FFFFFF;
-  font-weight: bold;
 }
 .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
 
 .btn-secondary { background: var(--surface); }
+
 .btn-danger {
   background: var(--danger);
   border-color: var(--danger);
   color: #FFFFFF;
-  font-weight: bold;
 }
-.btn-danger:hover { background: #A51F1F; }
+.btn-danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
+
+.navbtn {
+  width: 48px;
+  min-width: 48px;
+  padding: 0;
+  font-size: 18px;
+}
 
 .tab {
   border: none;
+  border-bottom: 3px solid transparent;
   border-radius: 0;
   background: transparent;
+  height: 48px;
   min-height: 48px;
-  font-size: 16px;
-  padding: 0 14px;
-  border-bottom: 3px solid transparent;
+  padding: 0 20px;
+  flex: none;
 }
 .tab:hover { background: #EDF1F5; }
 .tab.active {
-  font-weight: bold;
   color: var(--primary);
   border-bottom-color: var(--primary);
 }
 
-input[type="text"], input[type="date"], select, textarea {
-  font-family: Tahoma, "Segoe UI", sans-serif;
-  font-size: 16px;
-  color: var(--text);
+.seg { display: flex; border: 2px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button {
+  border: none;
+  border-radius: 0;
+  height: 48px;
   min-height: 48px;
-  border: 1px solid var(--border);
+  min-width: 96px;
+  padding: 0 20px;
+  background: var(--surface);
+}
+.seg button + button { border-right: 2px solid var(--border); }
+.seg button.active { background: var(--primary); color: #FFFFFF; }
+
+input[type="text"], select, textarea {
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--text);
+  height: 48px;
+  min-height: 48px;
+  border: 2px solid var(--border);
   border-radius: 8px;
-  padding: 4px 10px;
+  padding: 0 12px;
   background: var(--surface);
   transition: border-color 150ms, box-shadow 150ms;
 }
 
-input[readonly], input.readonly {
+select { padding-inline-end: 36px; }
+
+textarea {
+  height: auto;
+  min-height: 48px;
+  padding: 10px 12px;
+  width: 100%;
+  resize: vertical;
+}
+
+input[type="checkbox"] {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  accent-color: var(--primary);
+  flex: none;
+}
+
+input[readonly] {
   background: #EDF1F5;
-  color: var(--text);
   border-style: dashed;
 }
 
-.field-err { border-color: var(--danger) !important; }
+.field-err { border-color: var(--danger); }
 .inline-err {
   color: var(--danger);
   font-size: 13px;
   min-height: 18px;
 }
 
+/* Tables: header 52px, every body row at least 52px and grows with wraps. */
 table.grid {
   border-collapse: collapse;
   width: 100%;
@@ -93,8 +142,9 @@ table.grid th, table.grid td {
   padding: 4px 8px;
   text-align: center;
 }
+table.grid thead th { height: 52px; background: #E9EEF3; }
+table.grid tbody td { height: 52px; }
 table.grid thead th {
-  background: #E9EEF3;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -103,9 +153,24 @@ table.grid tr.zebra:nth-child(even) td { background: #F7F9FB; }
 table.grid tr.warnrow td { background: var(--warning-tint); }
 table.grid tr.errrow td { background: var(--danger-tint); }
 
+th.c-name, td.c-name {
+  width: auto;
+  min-width: 240px;
+  text-align: right;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+th.c-num, td.c-num { width: 120px; }
+th.c-unitcol, td.c-unitcol { width: 140px; }
+th.c-act, td.c-act { width: 96px; }
+td.num { text-align: center; }
+
 .rowmsg {
   font-size: 13px;
-  padding: 2px 8px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .rowmsg.warn { color: var(--warning); }
 .rowmsg.err { color: var(--danger); }
@@ -132,29 +197,20 @@ table.grid tr.errrow td { background: var(--danger-tint); }
 .neg { color: var(--danger); }
 
 .chip {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
   border-radius: 8px;
-  padding: 4px 12px;
+  padding: 0 12px;
   font-size: 14px;
-  font-weight: bold;
+  font-weight: 600;
   border: 1px solid transparent;
   white-space: nowrap;
+  flex: none;
 }
 .chip.open { background: var(--amber-chip-bg); color: var(--amber-chip-text); border-color: var(--warning); }
 .chip.closed { background: var(--green-chip-bg); color: var(--green-chip-text); border-color: var(--success); }
 .chip.new { background: #E9EEF3; color: var(--muted); border-color: var(--border); }
-
-.seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button {
-  border: none;
-  border-radius: 0;
-  min-height: 48px;
-  padding: 0 12px;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-}
-.seg button:last-child { border-left: none; }
-.seg button.active { background: var(--primary); color: #FFFFFF; font-weight: bold; }
 
 #actionbar {
   height: 64px;
@@ -166,6 +222,7 @@ table.grid tr.errrow td { background: var(--danger-tint); }
   gap: 8px;
   padding: 0 16px;
 }
+#actionbar button { min-width: 140px; }
 
 #toast {
   position: absolute;
@@ -203,37 +260,29 @@ table.grid tr.errrow td { background: var(--danger-tint); }
 }
 #dlg h3 { font-size: 18px; margin: 0 0 8px 0; }
 #dlg .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#dlg .dlg-actions button { flex: 1; }
 
-.banner {
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-weight: bold;
-  margin-bottom: 8px;
-  border: 1px solid;
-}
-.banner.closed { background: var(--green-chip-bg); color: var(--green-chip-text); border-color: var(--success); }
-.banner.warn { background: var(--amber-chip-bg); color: var(--amber-chip-text); border-color: var(--warning); }
+/* Form grid: label above field, 16px between rows, equal footer buttons. */
+.frow { display: grid; grid-template-columns: 1fr; gap: 4px; margin-bottom: 16px; }
+.frow > label { font-size: 14px; color: var(--muted); }
+.frow .cols { display: grid; gap: 8px; }
+.formfoot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.formfoot button { flex: 1; max-width: 220px; }
 
-.bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-.bar-name { width: 110px; font-size: 15px; white-space: nowrap; overflow: hidden; }
-.bar-track { flex: 1; background: #E9EEF3; border-radius: 8px; height: 22px; position: relative; }
+.bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; min-height: 48px; }
+.bar-name { width: 110px; font-size: 15px; white-space: normal; overflow-wrap: anywhere; flex: none; }
+.bar-track { flex: 1; background: #E9EEF3; border-radius: 8px; height: 22px; }
 .bar-fill { background: var(--primary); border-radius: 8px; height: 22px; }
-.bar-val { width: 60px; text-align: left; }
+.bar-val { width: 60px; text-align: left; flex: none; }
 
-select.unit { max-width: 120px; }
-input.qty { width: 110px; }
-
-#day-label {
+.base-equiv { font-size: 12px; color: var(--muted); }
+.dept-tag {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-right: 6px;
   white-space: nowrap;
-  flex: none;
-  max-width: 235px;
-  font-size: 15px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-
-#user-select { max-width: 110px; }
-
-#dept-seg button { padding: 0 8px; }
-
-#quit-btn { padding-left: 10px; padding-right: 10px; }
+.savedot { font-size: 13px; color: var(--success); min-height: 18px; }

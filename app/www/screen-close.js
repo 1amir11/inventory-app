@@ -34,12 +34,14 @@ KIOSK.closeScreen = (function () {
       h += '<div class="banner closed">' + fmt.esc(STR.lock) + " " +
         fmt.esc(STR.closed_banner) + "</div>";
     }
-    h += '<div class="table-wrap"><table class="grid"><thead><tr>' +
-      "<th>" + fmt.esc(STR.col_material) + "</th>" +
-      "<th>" + fmt.esc(STR.col_opening) + "</th>" +
-      "<th>" + fmt.esc(STR.col_received) + "</th>" +
-      "<th>" + fmt.esc(STR.col_closing) + "</th>" +
-      "<th>" + fmt.esc(STR.col_consumed) + "</th>" +
+    h += '<div class="table-wrap"><table class="grid t-close"><colgroup>' +
+      "<col><col class='c-open'><col class='c-rec'><col class='c-close'>" +
+      "<col class='c-cons'></colgroup><thead><tr>" +
+      '<th class="c-name">' + fmt.esc(STR.col_material) + "</th>" +
+      '<th class="c-num">' + fmt.esc(STR.col_opening) + "</th>" +
+      '<th class="c-num">' + fmt.esc(STR.col_received) + "</th>" +
+      '<th>' + fmt.esc(STR.col_closing) + "</th>" +
+      '<th class="c-num">' + fmt.esc(STR.col_consumed) + "</th>" +
       "</tr></thead><tbody>";
     var list = visibleCounts();
     if (!list.length) {
@@ -81,35 +83,34 @@ KIOSK.closeScreen = (function () {
     if (st.level === "err") { cls = " errrow"; msg = st.text; }
     var h = '<tr class="' + (i % 2 ? "zebra" : "") + cls +
       '" data-row="' + c.material_id + '">' +
-      '<td style="text-align:right"><b>' + fmt.esc(c.name) + "</b>" +
+      '<td class="c-name" title="' + fmt.esc(c.name) + '"><b>' +
+      fmt.esc(c.name) + "</b>" +
       '<span class="dept-tag">' + fmt.esc(deptName(c.department)) + "</span>" +
       '<div class="savedot" id="sv-' + c.material_id + '"></div></td>' +
-      '<td class="num">' + fmt.int(openBase) +
+      '<td class="c-num num">' + fmt.int(openBase) +
       '<div class="base-equiv">' + fmt.esc(STR.opening_default_note) + "</div></td>" +
-      '<td class="num" id="rec-' + c.material_id + '">' + fmt.int(c.received_base) +
-      (closed ? "" : ' <button type="button" data-recbtn="' + c.material_id +
-        '" style="min-height:40px;padding:0 10px">' +
+      '<td class="c-num num cell-rec" id="rec-' + c.material_id + '">' +
+      fmt.int(c.received_base) +
+      (closed ? "" : '<button type="button" data-recbtn="' + c.material_id + '">' +
         fmt.esc(STR.add_receipt) + "</button>") + "</td>" +
-      '<td><div style="display:flex;gap:4px;align-items:center;justify-content:center">' +
-      '<input type="text" inputmode="decimal" class="qty num" data-close="' +
+      '<td class="cell-close"><input type="text" inputmode="decimal" class="qty num" data-close="' +
       c.material_id + '" value="' + fmt.esc(closeQty) + '"' +
       (closed ? " disabled" : "") + ">" +
       '<select class="unit" data-closeunit="' + c.material_id + '"' +
       (closed ? " disabled" : "") + ">" + unitOpts(c, closeUnit) + "</select>" +
-      "</div>" +
       '<div class="base-equiv" id="eq-' + c.material_id + '"></div>' +
       '<div class="inline-err" id="er-' + c.material_id + '"></div></td>' +
-      '<td class="num"><b id="con-' + c.material_id + '"></b></td></tr>';
+      '<td class="c-num num"><b id="con-' + c.material_id + '"></b></td></tr>';
     if (msg) {
       h += '<tr class="' + (i % 2 ? "zebra" : "") + cls + '"><td colspan="5">' +
         '<div class="rowmsg ' + st.level + '">' + fmt.esc(msg) + "</div></td></tr>";
     }
     h += '<tr class="hidden" id="recrow-' + c.material_id + '"><td colspan="5">' +
-      '<div class="formrow" style="justify-content:center">' +
+      '<div class="recform">' +
       "<span>" + fmt.esc(STR.receipt_qty) + "</span>" +
-      '<input type="text" inputmode="decimal" class="qty num" data-recqty="' +
+      '<input type="text" inputmode="decimal" class="num" data-recqty="' +
       c.material_id + '"' + (closed ? " disabled" : "") + ">" +
-      '<select class="unit" data-recunit="' + c.material_id + '">' +
+      '<select data-recunit="' + c.material_id + '">' +
       unitOpts(c, null) + "</select>" +
       '<button type="button" class="btn-primary" data-recadd="' +
       c.material_id + '">' + fmt.esc(STR.add) + "</button>" +
@@ -206,7 +207,7 @@ KIOSK.closeScreen = (function () {
         "<div>" + fmt.esc(STR.coffee_derived) + ': <b class="num" id="coffee-derived"></b></div>' +
         '<div style="margin-top:8px"><div class="small muted">' +
         fmt.esc(STR.coffee_counted) + " (" + fmt.esc(STR.coffee_counted_hint) + ")</div>" +
-        '<div style="display:flex;gap:4px"><input type="text" inputmode="decimal" class="qty num" id="coffee-in" value="' +
+        '<div class="coffeerow"><input type="text" inputmode="decimal" class="num" id="coffee-in" value="' +
         fmt.esc(counted) + '"' + (closed ? " disabled" : "") + ">" +
         (closed ? "" : '<button type="button" id="coffee-save">' +
           fmt.esc(STR.save) + "</button>") + "</div>" +
@@ -217,9 +218,9 @@ KIOSK.closeScreen = (function () {
       h += '<div class="card"><h3>' + fmt.esc(STR.card_dishes) + "</h3>";
       dishes.forEach(function (p) {
         var v = draft.sales[p.id] !== undefined ? draft.sales[p.id] : saleOf(p.id);
-        h += '<div style="display:flex;gap:4px;align-items:center;margin-bottom:8px">' +
-          '<span style="flex:1">' + fmt.esc(p.name) + "</span>" +
-          '<input type="text" inputmode="decimal" class="qty num" data-sale="' +
+        h += '<div class="dishrow">' +
+          '<span title="' + fmt.esc(p.name) + '">' + fmt.esc(p.name) + "</span>" +
+          '<input type="text" inputmode="decimal" class="num" data-sale="' +
           p.id + '" value="' + fmt.esc(v) + '"' +
           (closed ? " disabled" : "") + ">" +
           '<div class="savedot" id="svs-' + p.id + '"></div></div>' +

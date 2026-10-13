@@ -20,10 +20,10 @@ var STR = {
   status_open: "مفتوح",
   status_closed: "مغلق",
   status_new: "جديد",
-  tab_close: "إغلاق اليوم",
-  tab_report: "تقرير اليوم",
+  tab_close: "الإغلاق",
+  tab_report: "التقرير",
   tab_archive: "الأرشيف",
-  tab_products: "الأصناف والأسعار",
+  tab_products: "الأصناف",
   tab_backup: "نسخ احتياطي",
 
   loading: "جاري التحميل…",

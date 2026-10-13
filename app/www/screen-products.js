@@ -62,7 +62,8 @@ KIOSK.productsScreen = (function () {
     vm.forEach(function (m) {
       h += '<button type="button" class="prod-item' +
         (sel && sel.kind === "mat" && sel.id === m.id ? " active" : "") +
-        '" data-sel="mat:' + m.id + '">' + fmt.esc(m.name) + deptTag(m.department) +
+        '" data-sel="mat:' + m.id + '" title="' + fmt.esc(m.name) + '">' +
+        fmt.esc(m.name) + deptTag(m.department) +
         "</button>";
     });
     h += '<div class="small muted" style="margin-top:8px">' +
@@ -72,7 +73,8 @@ KIOSK.productsScreen = (function () {
     vp.forEach(function (p) {
       h += '<button type="button" class="prod-item' +
         (sel && sel.kind === "prod" && sel.id === p.id ? " active" : "") +
-        '" data-sel="prod:' + p.id + '">' + fmt.esc(p.name) + deptTag(p.department) +
+        '" data-sel="prod:' + p.id + '" title="' + fmt.esc(p.name) + '">' +
+        fmt.esc(p.name) + deptTag(p.department) +
         "</button>";
     });
     h += '</div></div><div class="prod-edit" id="prod-edit"></div></div>';
@@ -124,14 +126,25 @@ KIOSK.productsScreen = (function () {
       "</span>";
   }
 
+  function nameField(id, value) {
+    /* Full-width name field; a 2-line textarea when the text is long so
+       nothing is clipped inside the input. */
+    if ((value || "").length > 40) {
+      return '<textarea id="' + id + '" rows="2" class="pename" title="' +
+        fmt.esc(value) + '">' + fmt.esc(value) + "</textarea>";
+    }
+    return '<input type="text" id="' + id + '" value="' + fmt.esc(value) +
+      '" class="pename" title="' + fmt.esc(value) + '">';
+  }
+
   function matEdit(box, m) {
     var h = '<div class="card"><h3>' + fmt.esc(m.name) +
       inactiveNote(m.active) + "</h3>";
-    h += '<div class="formrow"><span>' + fmt.esc(STR.mat_name) + "</span>" +
-      '<input type="text" id="pe-name" value="' + fmt.esc(m.name) +
-      '" style="flex:1;min-width:200px">' +
+    h += '<div class="frow"><label>' + fmt.esc(STR.mat_name) + "</label>" +
+      '<div class="cols" style="grid-template-columns:1fr auto">' +
+      nameField("pe-name", m.name) +
       '<button type="button" id="pe-rename">' + fmt.esc(STR.rename) +
-      "</button></div>";
+      "</button></div></div>";
     h += "<div>" + fmt.esc(STR.base_unit) + ": <b>" +
       fmt.esc(fmt.baseLabel(m.base_unit)) + "</b> " + deptTag(m.department) +
       (m.is_cup ? '<span class="dept-tag">' + fmt.esc(STR.is_cup) + "</span>" : "") +
@@ -238,11 +251,11 @@ KIOSK.productsScreen = (function () {
   function prodEdit(box, p) {
     var h = '<div class="card"><h3>' + fmt.esc(p.name) +
       inactiveNote(p.active) + "</h3>";
-    h += '<div class="formrow"><span>' + fmt.esc(STR.prod_name) + "</span>" +
-      '<input type="text" id="pe-name" value="' + fmt.esc(p.name) +
-      '" style="flex:1;min-width:200px">' +
+    h += '<div class="frow"><label>' + fmt.esc(STR.prod_name) + "</label>" +
+      '<div class="cols" style="grid-template-columns:1fr auto">' +
+      nameField("pe-name", p.name) +
       '<button type="button" id="pe-rename">' + fmt.esc(STR.rename) +
-      "</button></div>";
+      "</button></div></div>";
     h += "<div>" + deptTag(p.department) + "</div>";
     h += '<div class="formrow" style="margin-top:8px"><span>' +
       fmt.esc(STR.sold_source) + "</span>" +
