@@ -19,3 +19,21 @@ backups/
 
 # Local workspace scraps.
 .zwork/
+
+# Large runtime binaries (Python embeddable + portable Firefox): staged
+# locally under app/runtime/ for packaging, never committed. Only the
+# instructions and the Firefox policies file are tracked.
+app/runtime/*
+!app/runtime/README.txt
+!app/runtime/browser/
+app/runtime/browser/*
+!app/runtime/browser/distribution/
+app/runtime/browser/distribution/*
+!app/runtime/browser/distribution/policies.json
+build_inputs/
+*.exe
+*.msi
+!tests/
+7za.exe
+7z.exe
+7z.dll

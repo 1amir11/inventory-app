@@ -398,18 +398,21 @@ def _spawn(kind, exe_path):
 
 
 def start_server_hidden():
-    """Run server.py hidden; wait until it answers on the port."""
+    """Run server.py hidden; wait until it answers on the port.
+
+    start_demo.bat sets KITCHEN_DATA_DIR=data_demo so the demo runs on
+    fake data; start.bat leaves it unset so the real data/ is used.
+    """
     exe = python_exe()
     if exe is None:
         raise RuntimeError(STRINGS["server_failed"])
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    args = [exe, SERVER_SCRIPT, "--parent-pid", str(os.getpid())]
+    data_dir = os.environ.get("KITCHEN_DATA_DIR")
+    if data_dir:
+        args += ["--data-dir", data_dir]
     proc = subprocess.Popen(
-        [
-            exe,
-            SERVER_SCRIPT,
-            "--parent-pid",
-            str(os.getpid()),
-        ],
+        args,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         creationflags=creationflags,
