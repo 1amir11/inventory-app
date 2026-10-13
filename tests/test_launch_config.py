@@ -90,11 +90,35 @@ class TestLaunchConfig(unittest.TestCase):
             checker = GuardCheck()
             checker.visit(tree)
             self.assertTrue(checker.guarded, module_path)
-        with open(os.path.join(_APP_DIR, "www", "app.js"),
-                  encoding="utf-8") as f:
-            js = f.read()
-        for banned in ("alert(", "confirm(", "prompt("):
-            self.assertNotIn(banned, js)
+        www = os.path.join(_APP_DIR, "www")
+        for name in sorted(os.listdir(www)):
+            if not name.endswith(".js"):
+                continue
+            with open(os.path.join(www, name), encoding="utf-8") as f:
+                js = f.read()
+            for banned in ("alert(", "confirm(", "prompt("):
+                self.assertNotIn(banned, js, name)
+        for name in ("tokens.css", "base.css", "components.css",
+                     "screens.css"):
+            with open(os.path.join(www, name), encoding="utf-8") as f:
+                css = f.read()
+            for banned in (":has(", "color-mix(", "dvh", "svh",
+                           "@container"):
+                self.assertNotIn(banned, css, name)
+
+    def test_no_arabic_outside_strings(self):
+        # ALL Arabic text lives in strings.js; HTML and other JS files must
+        # not contain Arabic characters (symbols like arrows are fine).
+        www = os.path.join(_APP_DIR, "www")
+        for name in sorted(os.listdir(www)):
+            if name == "strings.js":
+                continue
+            if not (name.endswith(".js") or name.endswith(".html")):
+                continue
+            with open(os.path.join(www, name), encoding="utf-8") as f:
+                text = f.read()
+            bad = [ch for ch in text if "\u0600" <= ch <= "\u06FF"]
+            self.assertEqual(bad, [], name)
 
     def test_all_py_compile(self):
         for name in os.listdir(_APP_DIR):

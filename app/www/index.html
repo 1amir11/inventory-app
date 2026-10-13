@@ -2,99 +2,55 @@
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="utf-8">
-<title>مخزون المطبخ والكافتيريا</title>
-<link rel="stylesheet" href="style.css">
+<title></title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="base.css">
+<link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="screens.css">
 </head>
 <body>
 <div id="app">
   <header id="topbar">
-    <span id="app-title">مخزون المطبخ والكافتيريا</span>
-    <span id="demo-badge" class="hidden">بيانات تجريبية</span>
-    <label>المستخدم
-      <select id="user-select"></select>
-    </label>
-    <label>تاريخ اليوم التجاري
-      <input type="date" id="day-input">
-    </label>
-    <button id="load-day" class="big">عرض اليوم</button>
-    <button id="quit-btn" class="big danger">إغلاق البرنامج</button>
-  </header>
-  <nav id="tabs">
-    <button data-tab="day" class="big tab active">الجرد اليومي</button>
-    <button data-tab="items" class="big tab">الأصناف والمنتجات</button>
-    <button data-tab="reports" class="big tab">التقارير</button>
-  </nav>
-  <main id="content">
-    <section id="tab-day">
-      <div id="setup-box" class="hidden box">
-        <h2>إعداد أول تشغيل</h2>
-        <p>قاعدة البيانات فارغة. أنشئ المستخدمين ثم المواد والمنتجات.</p>
-        <input id="new-user-name" placeholder="اسم المستخدم" maxlength="100">
-        <button id="add-user-btn" class="big">إضافة مستخدم</button>
-      </div>
-      <h2>الجرد: <span id="day-label"></span> <span id="day-status"></span></h2>
-      <div id="day-scroll">
-        <table id="counts-table">
-          <thead><tr>
-            <th>الصنف</th><th>افتتاحي</th><th>وارد</th>
-            <th>إضافة وارد</th><th>إغلاق</th><th>مستهلك</th>
-          </tr></thead>
-          <tbody id="counts-body"></tbody>
-        </table>
-        <div class="box">
-          <h3>الكميات المباعة (الأطباق)</h3>
-          <div id="sales-box"></div>
-        </div>
-        <div class="box">
-          <h3>القهوة</h3>
-          <div id="coffee-box"></div>
-        </div>
-        <div class="box">
-          <button id="close-day-btn" class="big danger">إغلاق اليوم</button>
-          <button id="backup-btn" class="big">نسخة احتياطية</button>
-        </div>
-        <div class="box" id="report-box"><h3>تقرير اليوم</h3><div id="report"></div></div>
-      </div>
-    </section>
-    <section id="tab-items" class="hidden">
-      <div class="box">
-        <h3>مادة جديدة</h3>
-        <input id="m-name" placeholder="الاسم" maxlength="100">
-        <select id="m-dept"><option value="cafeteria">كافتيريا</option><option value="kitchen">مطبخ</option></select>
-        <select id="m-base"><option value="g">جرام</option><option value="ml">مللي</option><option value="piece">قطعة</option></select>
-        <label><input type="checkbox" id="m-cup"> كوب تغليف</label>
-        <input id="m-unit" placeholder="وحدة عد (مثال: كرتونة)" maxlength="50">
-        <input id="m-factor" type="number" min="1" step="1" placeholder="المعامل">
-        <input id="m-cost" type="number" min="0" step="0.01" placeholder="السعر بالجنيه (مثال: 75.50)">
-        <input id="m-date" type="date">
-        <button id="m-add" class="big">إضافة مادة</button>
-      </div>
-      <div class="box"><h3>المواد</h3><div id="materials-list"></div></div>
-      <div class="box"><h3>المنتجات</h3><div id="products-list"></div></div>
-    </section>
-    <section id="tab-reports" class="hidden">
-      <div class="box">
-        <label>من <input type="date" id="rep-from"></label>
-        <label>إلى <input type="date" id="rep-to"></label>
-        <button id="rep-show" class="big">عرض</button>
-        <a id="csv-link" class="big btn-link" href="#">تصدير CSV</a>
-      </div>
-      <div class="box"><div id="range-report"></div></div>
-    </section>
-  </main>
-</div>
-<div id="toast" class="hidden"></div>
-<div id="modal-back" class="hidden">
-  <div id="modal">
-    <p id="modal-text"></p>
-    <textarea id="modal-reason" rows="3" placeholder="اكتب السبب هنا"></textarea>
-    <div>
-      <button id="modal-ok" class="big">تأكيد بالسبب</button>
-      <button id="modal-cancel" class="big">إلغاء</button>
+    <span id="app-title"></span>
+    <span id="demo-badge" class="hidden"></span>
+    <label class="small" for="user-select" id="user-label"></label>
+    <select id="user-select"></select>
+    <div class="seg" id="dept-seg" role="group">
+      <button data-dept="kitchen" type="button"></button>
+      <button data-dept="cafeteria" type="button"></button>
+      <button data-dept="all" type="button"></button>
     </div>
-  </div>
+    <button id="day-prev" type="button" title="">&#9654;</button>
+    <button id="day-label" type="button" class="btn-secondary" style="font-weight:bold"></button>
+    <button id="day-next" type="button" title="">&#9664;</button>
+    <span id="day-chip"></span>
+    <span style="flex:1"></span>
+    <button id="quit-btn" type="button" class="btn-danger"></button>
+  </header>
+  <nav id="tabbar">
+    <button class="tab" data-tab="close" type="button"></button>
+    <button class="tab" data-tab="report" type="button"></button>
+    <button class="tab" data-tab="archive" type="button"></button>
+    <button class="tab" data-tab="products" type="button"></button>
+    <button class="tab" data-tab="backup" type="button"></button>
+  </nav>
+  <main id="content"></main>
+  <footer id="actionbar" class="hidden"></footer>
 </div>
+<div id="toast" class="hidden" role="status"></div>
+<div id="dlg-back" class="hidden"><div id="dlg" role="dialog"></div></div>
+<div id="cal-root"></div>
+<div id="audit-badge" class="hidden" style="position:absolute;top:0;left:0;background:#000;color:#fff;font-size:12px;z-index:99;padding:2px 6px;"></div>
 <script src="strings.js"></script>
+<script src="api.js"></script>
+<script src="format.js"></script>
+<script src="dates.js"></script>
+<script src="ui.js"></script>
+<script src="screen-close.js"></script>
+<script src="screen-report.js"></script>
+<script src="screen-archive.js"></script>
+<script src="screen-products.js"></script>
+<script src="screen-backup.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

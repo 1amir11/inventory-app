@@ -75,7 +75,10 @@ class ApiCase(unittest.TestCase):
                     return resp.status, json.loads(raw.decode("utf-8"))
                 return resp.status, raw.decode("utf-8-sig")
         except urllib.error.HTTPError as exc:
-            return exc.code, {}
+            try:
+                return exc.code, {}
+            finally:
+                exc.close()
 
     # -- the flow ---------------------------------------------------------
     def test_01_full_day_flow(self):
@@ -388,6 +391,38 @@ class ApiCase(unittest.TestCase):
                   {"name": "tea", "user_id": uid})
         self.call("POST", "/api/materials/%d/set_active" % tea["id"],
                   {"active": 1, "user_id": uid})
+
+    def test_05_detail_and_backup_endpoints(self):
+        st, body = self.get("/api/session")
+        uid = body["users"][0]["id"]
+        st, mats = self.get("/api/materials")
+        tea = [m for m in mats["materials"] if m["name"] == "tea"][0]
+        st, prods = self.get("/api/products")
+        tea_p = [p for p in prods["products"] if p["name"] == "tea"][0]
+        # Material detail carries units + cost history.
+        st, det = self.get("/api/materials/%d" % tea["id"])
+        self.assertEqual(st, 200)
+        self.assertTrue(det["units"])
+        self.assertTrue(det["costs"])
+        self.assertIn("price_piasters", det["costs"][0])
+        self.assertIn("effective_date", det["costs"][0])
+        st, _bd = self.get("/api/materials/9999")
+        self.assertEqual(st, 404)
+        # Product detail carries price + recipe history.
+        st, pdet = self.get("/api/products/%d" % tea_p["id"])
+        self.assertEqual(st, 200)
+        self.assertTrue(pdet["prices"])
+        self.assertIn("sold_source", pdet)
+        st, _bd = self.get("/api/products/9999")
+        self.assertEqual(st, 404)
+        # Backup list entries carry size + time.
+        st, bd = self.call("POST", "/api/backup", {"user_id": uid})
+        self.assertEqual(st, 200, bd)
+        self.assertTrue(bd["backups"])
+        last = bd["backups"][-1]
+        for key in ("path", "name", "size_bytes", "mtime"):
+            self.assertIn(key, last)
+        self.assertTrue(last["size_bytes"] > 0)
         st, body = self.get("/api/session")
         uid = body["users"][0]["id"]
         st, mats = self.get("/api/materials")

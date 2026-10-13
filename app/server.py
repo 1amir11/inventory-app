@@ -42,6 +42,8 @@ MAX_BODY_BYTES = 64 * 1024
 
 MATERIAL_ACTION_RE = re.compile(r"^/api/materials/(\d+)/(rename|set_active)$")
 PRODUCT_ACTION_RE = re.compile(r"^/api/products/(\d+)/(rename|set_active)$")
+MATERIAL_ONE_RE = re.compile(r"^/api/materials/(\d+)$")
+PRODUCT_ONE_RE = re.compile(r"^/api/products/(\d+)$")
 
 
 class AppContext(object):
@@ -90,6 +92,7 @@ class Router(object):
         self.gets = {}
         self.posts = {}
         self.patterns = []  # (compiled regex, {action: handler}) for POST
+        self.get_patterns = []  # (compiled regex, handler) for GET one-id
 
     def get(self, path, handler):
         self.gets[path] = handler
@@ -103,11 +106,22 @@ class Router(object):
         handler(context, request, item_id=<id>)."""
         self.patterns.append((regex, handlers))
 
+    def get_one(self, regex, handler):
+        """Register a /api/<entity>/<id> reader. The regex must capture the
+        id; the handler is called as handler(context, request, item_id)."""
+        self.get_patterns.append((regex, handler))
+
     def resolve(self, method, path):
         table = self.gets if method == "GET" else self.posts
         handler = table.get(path)
         if handler is not None:
             return handler, {}
+        if method == "GET":
+            for regex, target in self.get_patterns:
+                match = regex.match(path)
+                if match is None:
+                    continue
+                return target, {"item_id": int(match.group(1))}
         if method == "POST":
             for regex, handlers in self.patterns:
                 match = regex.match(path)
@@ -165,6 +179,8 @@ def build_router():
         "rename": routes_inventory.api_rename_product,
         "set_active": routes_inventory.api_set_product_active,
     })
+    router.get_one(MATERIAL_ONE_RE, routes_inventory.api_material_detail)
+    router.get_one(PRODUCT_ONE_RE, routes_inventory.api_product_detail)
     router.post("/api/heartbeat", routes_system.api_heartbeat)
     router.post("/api/shutdown", routes_system.api_shutdown)
     router.get("/api/shutdown-status", routes_system.api_shutdown_status)

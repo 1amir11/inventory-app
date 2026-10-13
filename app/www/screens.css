@@ -1,0 +1,102 @@
+/* screens.css - per-screen layouts. All fixed to fit 1024x650. */
+
+/* --- Close day --- */
+.screen-close { display: flex; gap: 8px; }
+.close-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.close-side { width: 290px; flex: none; overflow-y: auto; padding-left: 2px; }
+.table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.base-equiv { font-size: 12px; color: var(--muted); }
+.dept-tag {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-right: 6px;
+}
+.savedot { font-size: 13px; color: var(--success); min-height: 18px; }
+
+/* --- Report --- */
+.rep-cards { display: flex; gap: 8px; margin-bottom: 8px; }
+.rep-cards .card { flex: 1; margin-bottom: 0; text-align: center; }
+.rep-cards .lbl { font-size: 14px; color: var(--muted); }
+.rep-scroll { overflow-y: auto; }
+.rep-cols { display: flex; gap: 8px; }
+.rep-cols .card { flex: 1; }
+.rep-tables { display: flex; gap: 8px; margin-top: 8px; }
+.rep-tables .card { flex: 1; }
+
+/* --- Archive --- */
+.screen-archive { display: flex; gap: 8px; }
+.arch-list { width: 300px; flex: none; display: flex; flex-direction: column; }
+.arch-list .scroll { flex: 1; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.dayitem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  min-height: 48px;
+  text-align: right;
+}
+.dayitem.active { background: var(--primary-tint); font-weight: bold; }
+.arch-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.arch-detail .scroll { flex: 1; }
+.arch-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+/* --- Products --- */
+.screen-products { display: flex; gap: 8px; }
+.prod-list { width: 330px; flex: none; display: flex; flex-direction: column; }
+.prod-list .scroll { flex: 1; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.prod-item {
+  display: block;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  min-height: 48px;
+  text-align: right;
+}
+.prod-item.active { background: var(--primary-tint); font-weight: bold; }
+.prod-edit { flex: 1; min-width: 0; overflow-y: auto; }
+.formrow { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.formrow label { min-width: 110px; font-size: 15px; }
+
+/* --- Backup --- */
+.screen-backup .scroll { height: 100%; }
+
+/* --- Setup --- */
+.setup-box {
+  width: 520px;
+  margin: 40px auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+/* --- Calendar popup --- */
+.cal {
+  position: absolute;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 8px;
+  z-index: 55;
+}
+.cal table { border-collapse: collapse; }
+.cal td button, .cal th { min-height: 40px; min-width: 40px; font-size: 14px; }
+.cal td button { padding: 0 4px; border: none; }
+.cal td button.sel { background: var(--primary); color: #fff; font-weight: bold; }
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }

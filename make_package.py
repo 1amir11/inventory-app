@@ -73,9 +73,21 @@ REQUIRED_FILES = (
     "make_shortcut.py",
     "launch_hidden.vbs",
     "www/index.html",
-    "www/app.js",
-    "www/style.css",
+    "www/tokens.css",
+    "www/base.css",
+    "www/components.css",
+    "www/screens.css",
     "www/strings.js",
+    "www/api.js",
+    "www/format.js",
+    "www/dates.js",
+    "www/ui.js",
+    "www/screen-close.js",
+    "www/screen-report.js",
+    "www/screen-archive.js",
+    "www/screen-products.js",
+    "www/screen-backup.js",
+    "www/app.js",
 )
 
 

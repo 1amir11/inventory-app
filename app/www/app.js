@@ -1,478 +1,313 @@
-/* app.js - kiosk frontend. Vanilla JS, no frameworks.
-   No alert/confirm/prompt (they hang the kiosk): in-page toast + modal. */
-var state = { userId: null, date: "", materials: [], products: [] };
+/* app.js - shell: tabs, user, department filter, date navigator, heartbeat. */
+var KIOSK = KIOSK || {};
 
-function $(id) { return document.getElementById(id); }
+KIOSK.app = (function () {
+  var api = KIOSK.api, fmt = KIOSK.fmt, ui = KIOSK.ui;
+  var state = {
+    tab: "close", userId: null, users: [], dept: "all",
+    date: KIOSK.dates.todayLocal(), catalog: [], dayStatus: "new"
+  };
+  var screens = null;
+  var hbTimer = null;
 
-function toast(msg) {
-  var t = $("toast");
-  t.textContent = msg;
-  t.className = "";
-  setTimeout(function () { t.className = "hidden"; }, 4000);
-}
+  function $(id) { return document.getElementById(id); }
 
-function confirmReason(text) {
-  return new Promise(function (resolve) {
-    $("modal-text").textContent = text;
-    $("modal-reason").value = "";
-    $("modal-back").className = "";
-    $("modal-ok").onclick = function () {
-      var r = $("modal-reason").value.trim();
-      if (!r) { toast("يلزم سبب مكتوب."); return; }
-      $("modal-back").className = "hidden";
-      resolve(r);
-    };
-    $("modal-cancel").onclick = function () {
-      $("modal-back").className = "hidden";
-      resolve(null);
-    };
-  });
-}
-
-function apiGet(path) {
-  return fetch(path, { cache: "no-store" }).then(function (resp) {
-    var ct = resp.headers.get("Content-Type") || "";
-    if (ct.indexOf("json") >= 0) return resp.json();
-    return resp.text();
-  });
-}
-
-function apiPost(path, payload) {
-  payload = payload || {};
-  if (state.userId && payload.user_id === undefined) {
-    payload.user_id = state.userId;
+  function userId() { return state.userId; }
+  function dept() { return state.dept; }
+  function date() { return state.date; }
+  function setCatalog(products) { state.catalog = products || []; }
+  function productDept(pid) {
+    for (var i = 0; i < state.catalog.length; i++) {
+      if (state.catalog[i].id === pid) return state.catalog[i].department;
+    }
+    return null;
   }
-  return fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  }).then(function (resp) {
-    return resp.json().then(function (body) {
-      if (!resp.ok && (body.error === "opening_reason_required" ||
-                       body.error === "closing_reason_required")) {
-        return confirmReason(body.message || "يلزم سبب مكتوب.").then(
-          function (reason) {
-            if (!reason) return body;
-            payload.reason = reason;
-            return apiPost(path, payload);
-          });
+
+  function setDate(d) {
+    if (!KIOSK.dates.parse(d)) return;
+    state.date = d;
+    paintChrome();
+    if (state.tab === "close") KIOSK.closeScreen.show($("content"));
+    else if (state.tab === "report") KIOSK.reportScreen.show($("content"));
+  }
+
+  function paintChrome() {
+    $("day-label").textContent = KIOSK.dates.label(state.date);
+    var chip = $("day-chip");
+    chip.innerHTML = ui.chip(state.dayStatus);
+  }
+
+  function refreshChrome(day) {
+    if (day && day.date === state.date && day.status) {
+      state.dayStatus = day.status;
+    }
+    paintChrome();
+    audit();
+  }
+
+  function go(tab) {
+    if (screens && screens[state.tab] && screens[state.tab].cleanup) {
+      try { screens[state.tab].cleanup(); } catch (e) { /* noop */ }
+    }
+    state.tab = tab;
+    var tabs = document.querySelectorAll("#tabbar .tab");
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.toggle("active",
+        tabs[i].getAttribute("data-tab") === tab);
+    }
+    ui.close();
+    closeCal();
+    if (location.hash !== "#/" + tab) location.hash = "#/" + tab;
+    showTab();
+  }
+
+  function showTab() {
+    var root = $("content");
+    if (!state.users.length || !state.userId) {
+      setupView(root);
+      return;
+    }
+    screens[state.tab].show(root);
+    /* ?show=calendar auto-opens the date picker (visual test hook). */
+    if (/(?:^|[?&])show=calendar(?:&|$)/.test(location.search || "")) {
+      setTimeout(toggleCal, 300);
+    }
+  }
+
+  /* First-run setup: create the named users, then continue. */
+  function setupView(root) {
+    document.getElementById("actionbar").classList.add("hidden");
+    var h = '<div class="screen"><div class="setup-box"><h2 class="sec">' +
+      fmt.esc(STR.setup_title) + "</h2>" +
+      '<div class="muted" style="margin-bottom:8px">' +
+      fmt.esc(STR.setup_hint) + "</div>" +
+      '<div class="formrow"><input type="text" id="su-name" placeholder="' +
+      fmt.esc(STR.setup_user_ph) + '" style="flex:1" maxlength="100">' +
+      '<button type="button" id="su-add" class="btn-primary">' +
+      fmt.esc(STR.setup_add_user) + "</button></div>" +
+      '<div class="inline-err" id="su-err"></div>' +
+      '<div id="su-list" style="margin-bottom:8px"></div>' +
+      '<div class="small muted">' + fmt.esc(STR.setup_next) + "</div></div></div>";
+    root.innerHTML = h;
+    paintUsers();
+    $("su-add").onclick = function () {
+      var name = $("su-name").value.trim();
+      if (!name) {
+        $("su-err").textContent = STR.err_bad_number;
+        return;
       }
-      if (!resp.ok) {
-        toast(body.message || "خطأ");
-      }
-      body._status = resp.status;
-      return body;
-    });
-  });
-}
-
-function egp(piasters) {
-  var neg = piasters < 0 ? "-" : "";
-  var a = Math.abs(piasters);
-  return neg + Math.floor(a / 100) + "." + ("0" + (a % 100)).slice(-2);
-}
-
-function todayStr() {
-  var d = new Date();
-  function p(n) { return (n < 10 ? "0" : "") + n; }
-  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
-}
-
-/* -- session / users ------------------------------------------------ */
-
-function loadSession() {
-  return apiGet("/api/session").then(function (body) {
-    var sel = $("user-select");
-    sel.innerHTML = "";
-    var ph = document.createElement("option");
-    ph.value = "";
-    ph.textContent = STR.user_pick;
-    sel.appendChild(ph);
-    body.users.forEach(function (u) {
-      var o = document.createElement("option");
-      o.value = u.id;
-      o.textContent = u.name;
-      sel.appendChild(o);
-    });
-    if (body.setup_required) {
-      $("setup-box").className = "box";
-    } else {
-      $("setup-box").className = "hidden box";
-    }
-    if (body.users.length > 0 && !state.userId) {
-      state.userId = body.users[0].id;
-      sel.value = String(state.userId);
-    }
-  });
-}
-
-function loadSettings() {
-  return apiGet("/api/settings").then(function (body) {
-    if (body.settings && body.settings.demo === "1") {
-      $("demo-badge").className = "";
-    } else {
-      $("demo-badge").className = "hidden";
-    }
-  });
-}
-
-/* -- day view -------------------------------------------------------- */
-
-function unitOptions(units, selectedId) {
-  return units.map(function (u) {
-    var sel = (u.id === selectedId) ? ' selected' : '';
-    return '<option value="' + u.id + '"' + sel + '>' +
-      u.unit_name + '</option>';
-  }).join("");
-}
-
-function loadDay() {
-  if (!state.date) { toast("اختر التاريخ"); return Promise.resolve(); }
-  return apiGet("/api/day?date=" + encodeURIComponent(state.date)).then(
-    function (body) {
-      $("day-label").textContent = body.date;
-      $("day-status").textContent = body.status === "closed" ? STR.day_closed : "";
-      var tb = $("counts-body");
-      tb.innerHTML = "";
-      body.counts.forEach(function (c) {
-        var tr = document.createElement("tr");
-        var cnt = c.count || {};
-        var openingVal = (cnt.opening_qty_entered !== undefined &&
-                          cnt.opening_qty_entered !== null)
-          ? cnt.opening_qty_entered : "";
-        var closingVal = (cnt.closing_qty_entered !== undefined &&
-                          cnt.closing_qty_entered !== null)
-          ? cnt.closing_qty_entered : "";
-        var openBase = cnt.opening_base !== undefined ? cnt.opening_base
-          : c.opening_default_base;
-        var closeBase = (cnt.closing_base !== undefined &&
-                         cnt.closing_base !== null) ? cnt.closing_base : null;
-        var consumed = closeBase === null ? "-" :
-          String(openBase + c.received_base - closeBase);
-        tr.innerHTML =
-          "<td>" + c.name + "<br><small>الافتراضي: " + c.opening_default_base +
-          "</small></td>" +
-          "<td><input data-m='" + c.material_id + "' data-f='opening' " +
-          "  value='" + openingVal + "' type='number' min='0' step='any'>" +
-          "<select data-mu='" + c.material_id + "' data-f='opening'>" +
-          unitOptions(c.units, cnt.opening_unit_id) + "</select>" +
-          "<button class='big' data-save='opening' data-m='" + c.material_id +
-          "'>حفظ</button></td>" +
-          "<td>" + c.received_base + "</td>" +
-          "<td><input data-r='" + c.material_id + "' type='number' min='0' " +
-          "  step='any' style='width:80px'>" +
-          "<select data-ru='" + c.material_id + "'>" +
-          unitOptions(c.units, null) + "</select>" +
-          "<button class='big' data-add='" + c.material_id + "'>+</button></td>" +
-          "<td><input data-m='" + c.material_id + "' data-f='closing' " +
-          "  value='" + closingVal + "' type='number' min='0' step='any'>" +
-          "<select data-mu='" + c.material_id + "' data-f='closing'>" +
-          unitOptions(c.units, cnt.closing_unit_id) + "</select>" +
-          "<button class='big' data-save='closing' data-m='" + c.material_id +
-          "'>حفظ</button></td>" +
-          "<td>" + consumed + "</td>";
-        tb.appendChild(tr);
+      var payload = { name: name };
+      if (state.userId) payload.user_id = state.userId;
+      api.post("/api/users", payload).then(function (body) {
+        if (body._status !== 200) { api.failToast(body); return; }
+        $("su-name").value = "";
+        loadSession(true);
       });
-      wireDayButtons();
-      renderSales(body);
-      renderReport(body.report);
+    };
+  }
+
+  function paintUsers() {
+    var box = $("su-list");
+    if (!box) return;
+    box.textContent = state.users.map(function (u) { return u.name; }).join(", ");
+  }
+
+  function loadSession(keepTab) {
+    return api.get("/api/session").then(function (body) {
+      state.users = body.users || [];
+      var sel = $("user-select");
+      sel.innerHTML = "";
+      var ph = document.createElement("option");
+      ph.value = "";
+      ph.textContent = STR.user_pick;
+      sel.appendChild(ph);
+      state.users.forEach(function (u) {
+        var o = document.createElement("option");
+        o.value = u.id;
+        o.textContent = u.name;
+        sel.appendChild(o);
+      });
+      if (!state.userId && state.users.length) {
+        state.userId = state.users[0].id;
+      }
+      sel.value = state.userId ? String(state.userId) : "";
+      paintUsers();
+      if (!keepTab) showTab();
+      else if (!state.users.length) showTab();
+      else if (state.users.length && document.getElementById("su-name")) {
+        showTab();
+      }
+      return api.get("/api/settings");
+    }).then(function (s) {
+      var badge = $("demo-badge");
+      if (s && s.settings && s.settings.demo === "1") {
+        badge.textContent = STR.demo_badge;
+        badge.classList.remove("hidden");
+      } else { badge.classList.add("hidden"); }
     });
-}
+  }
 
-function rowQty(mid, field) {
-  var inp = document.querySelector(
-    "input[data-m='" + mid + "'][data-f='" + field + "']");
-  var sel = document.querySelector(
-    "select[data-mu='" + mid + "'][data-f='" + field + "']");
-  return { qty: parseFloat(inp.value), unit: parseInt(sel.value, 10) };
-}
+  /* ---------- date navigator + calendar ---------- */
 
-function wireDayButtons() {
-  var saves = document.querySelectorAll("button[data-save]");
-  saves.forEach(function (b) {
-    b.onclick = function () {
-      var mid = parseInt(b.getAttribute("data-m"), 10);
-      var field = b.getAttribute("data-save");
-      var v = rowQty(mid, field);
-      if (isNaN(v.qty) || v.qty < 0) { toast("كمية غير صالحة"); return; }
-      apiPost("/api/day/count", {
-        date: state.date, material_id: mid, field: field,
-        qty_entered: v.qty, unit_id: v.unit
-      }).then(function (body) {
-        if (body._status === 200) {
-          toast("تم الحفظ.");
-          if (body.warnings && body.warnings.length) toast(body.warnings[0]);
-          loadDay();
+  function closeCal() { $("cal-root").innerHTML = ""; }
+
+  function toggleCal() {
+    var root = $("cal-root");
+    if (root.innerHTML) { closeCal(); return; }
+    var label = $("day-label");
+    var r = label.getBoundingClientRect();
+    var app = $("app").getBoundingClientRect();
+    var wrap = document.createElement("div");
+    wrap.style.position = "absolute";
+    wrap.style.top = (r.bottom - app.top + 4) + "px";
+    wrap.style.right = Math.max(8, app.right - r.right) + "px";
+    root.appendChild(wrap);
+    KIOSK.dates.calendar(wrap, state.date, function (iso) {
+      closeCal();
+      setDate(iso);
+    });
+  }
+
+  /* ---------- heartbeat + quit ---------- */
+
+  function heartbeat() {
+    fetch("/api/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    }).catch(function () { /* next beat retries */ });
+  }
+
+  function quit() {
+    ui.dialog(STR.quit_confirm_title,
+      "<div>" + fmt.esc(STR.quit_confirm_text) + "</div>", {
+        okText: STR.quit_program,
+        okClass: "btn-danger",
+        onOk: function () {
+          api.post("/api/shutdown", { user_id: state.userId }).then(
+            function () {
+              ui.toast(STR.quit_confirm_text);
+              try { window.close(); } catch (e) { /* launcher closes */ }
+            });
         }
       });
-    };
-  });
-  var adds = document.querySelectorAll("button[data-add]");
-  adds.forEach(function (b) {
-    b.onclick = function () {
-      var mid = parseInt(b.getAttribute("data-add"), 10);
-      var q = document.querySelector("input[data-r='" + mid + "']");
-      var s = document.querySelector("select[data-ru='" + mid + "']");
-      var qty = parseFloat(q.value);
-      if (isNaN(qty) || qty < 0) { toast("كمية غير صالحة"); return; }
-      apiPost("/api/day/receipt", {
-        date: state.date, material_id: mid,
-        qty_entered: qty, unit_id: parseInt(s.value, 10)
-      }).then(function (body) {
-        if (body._status === 200) { toast("تم الحفظ."); loadDay(); }
-      });
-    };
-  });
-}
-
-function renderSales(body) {
-  var box = $("sales-box");
-  box.innerHTML = "";
-  var sales = {};
-  body.sales.forEach(function (s) { sales[s.product_id] = s.qty_sold; });
-  body.products.forEach(function (p) {
-    if (p.sold_source !== "manual") return;
-    var div = document.createElement("div");
-    div.innerHTML = p.name +
-      " <input data-sale='" + p.id + "' type='number' min='0' step='1' " +
-      "  value='" + (sales[p.id] || 0) + "'>" +
-      " <button class='big' data-savesale='" + p.id + "'>حفظ</button>";
-    box.appendChild(div);
-  });
-  box.querySelectorAll("button[data-savesale]").forEach(function (b) {
-    b.onclick = function () {
-      var pid = parseInt(b.getAttribute("data-savesale"), 10);
-      var q = document.querySelector("input[data-sale='" + pid + "']");
-      var qty = parseInt(q.value, 10);
-      if (isNaN(qty) || qty < 0) { toast("كمية غير صالحة"); return; }
-      apiPost("/api/day/sale",
-        { date: state.date, product_id: pid, qty_sold: qty }
-      ).then(function (bd) {
-        if (bd._status === 200) { toast("تم الحفظ."); loadDay(); }
-      });
-    };
-  });
-  // Coffee cross-check box.
-  var cb = $("coffee-box");
-  cb.innerHTML = "";
-  var hasCoffee = body.products.some(function (p) {
-    return p.sold_source === "derived_remainder_of_cup";
-  });
-  if (hasCoffee) {
-    cb.innerHTML = "عد يدوي لأكواب السادة (اختياري، للمطابقة فقط) " +
-      "<input id='coffee-counted' type='number' min='0' step='1'>" +
-      " <button class='big' id='coffee-save'>حفظ</button>" +
-      " <span id='coffee-info'></span>";
-    $("coffee-save").onclick = function () {
-      var v = parseInt($("coffee-counted").value, 10);
-      if (isNaN(v) || v < 0) { toast("كمية غير صالحة"); return; }
-      apiPost("/api/day/coffee-check",
-        { date: state.date, counted_cups: v }).then(function (bd) {
-        if (bd._status === 200) { toast("تم الحفظ."); loadDay(); }
-      });
-    };
   }
-}
 
-function renderReport(rep) {
-  var box = $("report");
-  if (!rep) { box.innerHTML = "-"; return; }
-  var h = "<table><tr><th>المنتج</th><th>مباع</th><th>إيراد</th>" +
-    "<th>تكلفة</th><th>ربح</th></tr>";
-  rep.lines.forEach(function (ln) {
-    h += "<tr><td>" + ln.name + "</td><td>" + ln.qty_sold + "</td><td>" +
-      egp(ln.revenue) + "</td><td>" + egp(ln.cost) + "</td><td>" +
-      egp(ln.profit) + "</td></tr>";
-  });
-  h += "</table>";
-  h += "<p>الإجمالي: إيراد " + egp(rep.total_revenue) + " / تكلفة " +
-    egp(rep.total_cost) + " / ربح " + egp(rep.total_profit) + "</p>";
-  h += "<p>مطابقة الأكواب: مستهلك " + rep.reconciliation.cups_consumed +
-    " / محسوب " + rep.reconciliation.cups_derived_total + " / الفرق " +
-    rep.reconciliation.difference + "</p>";
-  if (rep.yield) {
-    h += "<p>القهوة: " + rep.yield.grams_per_cup.toFixed(1) +
-      " جم/كوب، " + rep.yield.cups_per_bag.toFixed(1) + " كوب/كيس " +
-      "(ثقة: " + rep.yield.confidence + "، أيام: " + rep.yield.days_used +
-      "، أكواب: " + rep.yield.cups_used + ")</p>";
+  /* ---------- audit badge (?audit=1): proves no page scroll ---------- */
+
+  function audit() {
+    if (location.search.indexOf("audit=1") < 0) return;
+    var badge = $("audit-badge");
+    badge.classList.remove("hidden");
+    var de = document.documentElement;
+    var over = de.scrollHeight > 650 || de.scrollWidth > 1024;
+    badge.textContent = "scroll " + de.scrollWidth + "x" + de.scrollHeight +
+      (over ? " OVERFLOW" : " OK") + " | " + state.tab + " " + state.date;
+    badge.style.background = over ? "#C62828" : "#1E8E4E";
   }
-  if (rep.coffee_check) {
-    h += "<p class='" + (rep.coffee_check.ok ? "ok" : "warn") + "'>" +
-      "مطابقة القهوة: محسوب " + rep.coffee_check.derived + " / معدود " +
-      rep.coffee_check.counted + "</p>";
-  }
-  rep.warnings.forEach(function (w) { h += "<p class='warn'>" + w + "</p>"; });
-  box.innerHTML = h;
-}
 
-/* -- items tab ---------------------------------------------------------- */
+  /* ---------- init ---------- */
 
-function loadItems() {
-  return apiGet("/api/materials").then(function (body) {
-    state.materials = body.materials;
-    var ml = $("materials-list");
-    ml.innerHTML = "";
-    body.materials.forEach(function (m) {
-      var d = document.createElement("div");
-      d.textContent = m.name + " (" + m.department + ") وحدات: " +
-        m.units.map(function (u) {
-          return u.unit_name + "=" + u.factor_to_base;
-        }).join(", ");
-      ml.appendChild(d);
-    });
-  }).then(function () {
-    return apiGet("/api/products");
-  }).then(function (body) {
-    state.products = body.products;
-    var pl = $("products-list");
-    pl.innerHTML = "";
-    body.products.forEach(function (p) {
-      var d = document.createElement("div");
-      d.textContent = p.name + " (" + p.sold_source + ")";
-      pl.appendChild(d);
-    });
-  });
-}
-
-/* -- reports tab --------------------------------------------------------- */
-
-function loadRange() {
-  var f = $("rep-from").value, t = $("rep-to").value;
-  if (!f || !t) { toast("اختر المدة"); return; }
-  $("csv-link").href = "/api/export.csv?from=" + encodeURIComponent(f) +
-    "&to=" + encodeURIComponent(t);
-  apiGet("/api/report?from=" + encodeURIComponent(f) +
-         "&to=" + encodeURIComponent(t)).then(function (body) {
-    var h = "<table><tr><th>اليوم</th><th>إيراد</th><th>تكلفة</th>" +
-      "<th>ربح</th></tr>";
-    (body.days || []).forEach(function (d) {
-      h += "<tr><td>" + d.date + "</td><td>" + egp(d.revenue) + "</td><td>" +
-        egp(d.cost) + "</td><td>" + egp(d.profit) + "</td></tr>";
-    });
-    h += "</table>";
-    if (body.totals) {
-      h += "<p>الإجمالي: " + egp(body.totals.revenue) + " / " +
-        egp(body.totals.cost) + " / " + egp(body.totals.profit) + "</p>";
+  function paintStatic() {
+    document.title = STR.app_title;
+    $("app-title").textContent = STR.app_title;
+    $("user-label").textContent = STR.user;
+    $("quit-btn").textContent = STR.quit_program;
+    var tabs = {
+      close: STR.tab_close, report: STR.tab_report, archive: STR.tab_archive,
+      products: STR.tab_products, backup: STR.tab_backup
+    };
+    var btns = document.querySelectorAll("#tabbar .tab");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].textContent = tabs[btns[i].getAttribute("data-tab")];
     }
-    $("range-report").innerHTML = h;
-  });
-}
-
-/* -- wiring -------------------------------------------------------------- */
-
-function heartbeat() {
-  fetch("/api/heartbeat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}"
-  }).catch(function () { /* server momentarily busy; next beat retries */ });
-}
-
-function init() {
-  loadStrings();
-  state.date = todayStr();
-  $("day-input").value = state.date;
-  $("m-date").value = state.date;
-  $("rep-from").value = state.date;
-  $("rep-to").value = state.date;
-  loadSession().then(function () { return loadSettings(); }).then(
-    function () { return loadDay(); }).then(function () { loadItems(); });
-
-  document.querySelectorAll("#tabs .tab").forEach(function (b) {
-    b.onclick = function () {
-      document.querySelectorAll("#tabs .tab").forEach(function (x) {
-        x.className = "big tab";
-      });
-      b.className = "big tab active";
-      ["day", "items", "reports"].forEach(function (t) {
-        $("tab-" + t).className = (t === b.getAttribute("data-tab")) ? "" : "hidden";
-      });
-      if (b.getAttribute("data-tab") === "items") loadItems();
+    var seg = {
+      kitchen: STR.dept_kitchen, cafeteria: STR.dept_cafeteria, all: STR.dept_all
     };
-  });
-
-  $("user-select").onchange = function () {
-    state.userId = parseInt($("user-select").value, 10) || null;
-  };
-  $("load-day").onclick = function () {
-    state.date = $("day-input").value;
-    loadDay();
-  };
-  $("day-input").onchange = function () { state.date = $("day-input").value; };
-
-  $("add-user-btn").onclick = function () {
-    var name = $("new-user-name").value.trim();
-    if (!name) { toast("اكتب الاسم"); return; }
-    var payload = { name: name };
-    if (state.userId) payload.user_id = state.userId;
-    apiPost("/api/users", payload).then(function (body) {
-      if (body._status === 200) {
-        toast("تم الحفظ.");
-        $("new-user-name").value = "";
-        loadSession();
-      }
-    });
-  };
-
-  $("m-add").onclick = function () {
-    var payload = {
-      name: $("m-name").value.trim(),
-      department: $("m-dept").value,
-      base_unit: $("m-base").value,
-      is_cup: $("m-cup").checked
-    };
-    var uname = $("m-unit").value.trim();
-    if (uname) {
-      payload.units = [{
-        unit_name: uname,
-        factor_to_base: parseInt($("m-factor").value, 10)
-      }];
+    var sg = document.querySelectorAll("#dept-seg button");
+    for (var k = 0; k < sg.length; k++) {
+      sg[k].textContent = seg[sg[k].getAttribute("data-dept")];
     }
-    var cost = parseFloat($("m-cost").value);
-    apiPost("/api/materials", payload).then(function (body) {
-      if (body._status === 200) {
-        toast("تم الحفظ.");
-        // Attach the first cost to the new extra unit (if any).
-        if (!isNaN(cost) && cost >= 0 && uname) {
-          apiGet("/api/materials").then(function (mb) {
-            var m = mb.materials.filter(function (x) {
-              return x.id === body.id;
-            })[0];
-            var u = m.units.filter(function (x) {
-              return x.unit_name === uname;
-            })[0];
-            return apiPost("/api/costs", {
-              material_id: body.id, unit_id: u.id,
-              price_egp: cost, effective_date: state.date
-            });
-          }).then(function () { loadItems(); loadDay(); });
-        } else { loadItems(); loadDay(); }
-      }
-    });
-  };
+    $("day-prev").title = STR.day_prev;
+    $("day-next").title = STR.day_next;
+  }
 
-  $("close-day-btn").onclick = function () {
-    apiPost("/api/day/close", { date: state.date }).then(function (body) {
-      if (body._status === 200) { toast("تم إغلاق اليوم."); loadDay(); }
+  function init() {
+    screens = {
+      close: KIOSK.closeScreen, report: KIOSK.reportScreen,
+      archive: KIOSK.archiveScreen, products: KIOSK.productsScreen,
+      backup: KIOSK.backupScreen
+    };
+    /* ?date=YYYY-MM-DD presets the business date (demo/review hook). */
+    var dq = /[?&]date=(\d{4}-\d{2}-\d{2})/.exec(location.search || "");
+    if (dq && KIOSK.dates.parse(dq[1])) state.date = dq[1];
+    /* ?failtest=1 fires one bogus write to prove the error toast. */
+    var failtest = /(?:^|[?&])failtest=1(?:&|$)/.test(location.search || "");
+    paintStatic();
+    var tabs = document.querySelectorAll("#tabbar .tab");
+    for (var i = 0; i < tabs.length; i++) {
+      (function (b) {
+        b.onclick = function () { go(b.getAttribute("data-tab")); };
+      })(tabs[i]);
+    }
+    var m = /^#\/(\w+)$/.exec(location.hash || "");
+    if (m && screens[m[1]]) state.tab = m[1];
+    var tabs0 = document.querySelectorAll("#tabbar .tab");
+    for (var t = 0; t < tabs0.length; t++) {
+      tabs0[t].classList.toggle("active",
+        tabs0[t].getAttribute("data-tab") === state.tab);
+    }
+    window.addEventListener("hashchange", function () {
+      var mm = /^#\/(\w+)$/.exec(location.hash || "");
+      if (mm && screens[mm[1]] && mm[1] !== state.tab) go(mm[1]);
     });
+    var sg = document.querySelectorAll("#dept-seg button");
+    for (var k = 0; k < sg.length; k++) {
+      (function (b) {
+        b.onclick = function () {
+          state.dept = b.getAttribute("data-dept");
+          for (var j = 0; j < sg.length; j++) {
+            sg[j].classList.toggle("active", sg[j] === b);
+          }
+          showTab();
+        };
+      })(sg[k]);
+    }
+    for (var a = 0; a < sg.length; a++) {
+      sg[a].classList.toggle("active",
+        sg[a].getAttribute("data-dept") === "all");
+    }
+    $("user-select").onchange = function () {
+      state.userId = parseInt($("user-select").value, 10) || null;
+    };
+    $("day-prev").onclick = function () {
+      setDate(KIOSK.dates.addDays(state.date, -1));
+    };
+    $("day-next").onclick = function () {
+      setDate(KIOSK.dates.addDays(state.date, 1));
+    };
+    $("day-label").onclick = toggleCal;
+    $("quit-btn").onclick = quit;
+    paintChrome();
+    loadSession();
+    if (failtest) {
+      api.post("/api/does-not-exist", {}).then(function (body) {
+        api.failToast(body);
+      });
+    }
+    if (hbTimer) clearInterval(hbTimer);
+    hbTimer = setInterval(heartbeat, 10000);
+  }
+
+  return {
+    init: init, go: go, userId: userId, dept: dept, date: date,
+    setDate: setDate, setCatalog: setCatalog, productDept: productDept,
+    refreshChrome: refreshChrome
   };
-  $("backup-btn").onclick = function () {
-    apiPost("/api/backup", {}).then(function (body) {
-      if (body._status === 200) toast("تم الحفظ.");
-    });
-  };
-  $("rep-show").onclick = loadRange;
-  $("quit-btn").onclick = function () {
-    apiPost("/api/shutdown", {}).then(function () {
-      toast("جارٍ إغلاق البرنامج...");
-      try { window.close(); } catch (e) { /* kiosk closes via launcher */ }
-    });
-  };
-  setInterval(heartbeat, 10000);
-}
+})();
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", KIOSK.app.init);
 } else {
-  init();
+  KIOSK.app.init();
 }

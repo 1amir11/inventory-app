@@ -1148,6 +1148,78 @@ def api_set_product_active(context, request, item_id):
         conn.close()
 
 
+def api_material_detail(context, request, item_id):
+    """One material with its units and full cost history (newest first)."""
+    conn = context.connect()
+    try:
+        mat = conn.execute("SELECT * FROM materials WHERE id = ?",
+                           (item_id,)).fetchone()
+        if mat is None:
+            raise ApiError(404, "not_found", S["err_not_found"])
+        units = [{"id": u["id"], "unit_name": u["unit_name"],
+                  "factor_to_base": u["factor_to_base"],
+                  "is_base_unit": u["is_base_unit"]}
+                 for u in db.units_for(conn, mat["id"])]
+        costs = [{"id": r["id"], "unit_name": r["unit_name"],
+                  "price_piasters": r["price_piasters"],
+                  "effective_date": r["effective_date"]}
+                 for r in conn.execute(
+                     "SELECT mc.id, u.unit_name, mc.price_piasters,"
+                     " mc.effective_date FROM material_costs mc"
+                     " JOIN count_units u ON u.id = mc.count_unit_id"
+                     " WHERE mc.material_id = ?"
+                     " ORDER BY mc.effective_date DESC, mc.id DESC",
+                     (mat["id"],))]
+        return http_kit.json_response({
+            "id": mat["id"], "name": mat["name"],
+            "department": mat["department"], "base_unit": mat["base_unit"],
+            "is_cup": bool(mat["is_cup"]), "active": mat["active"],
+            "units": units, "costs": costs,
+        })
+    finally:
+        conn.close()
+
+
+def api_product_detail(context, request, item_id):
+    """One product with price and recipe history (newest first)."""
+    conn = context.connect()
+    try:
+        prod = conn.execute("SELECT * FROM products WHERE id = ?",
+                            (item_id,)).fetchone()
+        if prod is None:
+            raise ApiError(404, "not_found", S["err_not_found"])
+        prices = [{"id": r["id"], "price_piasters": r["price_piasters"],
+                   "effective_date": r["effective_date"]}
+                  for r in conn.execute(
+                      "SELECT id, price_piasters, effective_date"
+                      " FROM product_prices WHERE product_id = ?"
+                      " ORDER BY effective_date DESC, id DESC",
+                      (prod["id"],))]
+        recipe = [{"id": r["id"], "material_id": r["material_id"],
+                   "material_name": r["material_name"],
+                   "qty_base": r["qty_base"],
+                   "effective_date": r["effective_date"]}
+                  for r in conn.execute(
+                      "SELECT rl.id, rl.material_id, m.name AS material_name,"
+                      " rl.qty_base, rl.effective_date FROM recipe_lines rl"
+                      " JOIN materials m ON m.id = rl.material_id"
+                      " WHERE rl.product_id = ?"
+                      " ORDER BY rl.effective_date DESC, rl.id DESC",
+                      (prod["id"],))]
+        return http_kit.json_response({
+            "id": prod["id"], "name": prod["name"],
+            "department": prod["department"],
+            "sold_source": prod["sold_source"],
+            "source_material_id": prod["source_material_id"],
+            "recipe_qty_base": prod["recipe_qty_base"],
+            "coffee_material_id": prod["coffee_material_id"],
+            "uses_cup": bool(prod["uses_cup"]), "active": prod["active"],
+            "prices": prices, "recipe": recipe,
+        })
+    finally:
+        conn.close()
+
+
 def _egp(piasters):
     return "%d.%02d" % (piasters // 100, abs(piasters) % 100)
 
@@ -1204,7 +1276,19 @@ def _list_backups(context):
         names = sorted(_glob.glob(os.path.join(folder, "kitchen_*.db")))
     except OSError:
         return []
-    return [{"path": p} for p in names[-30:]]
+    out = []
+    for path in names[-30:]:
+        try:
+            stat = os.stat(path)
+            out.append({"path": path,
+                        "name": os.path.basename(path),
+                        "size_bytes": stat.st_size,
+                        "mtime": stat.st_mtime})
+        except OSError:
+            out.append({"path": path,
+                        "name": os.path.basename(path),
+                        "size_bytes": 0, "mtime": 0})
+    return out
 
 
 def api_list_backups(context, request):

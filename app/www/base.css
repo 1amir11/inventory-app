@@ -1,0 +1,95 @@
+/* base.css - reset, layout shell, typography. No page scroll: the app is
+   exactly 1024x650, only .scroll regions scroll. */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: Tahoma, "Segoe UI", sans-serif;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.num, td.num, .money {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: embed;
+}
+
+#app {
+  width: 1024px;
+  height: 650px;
+  margin: 0 auto;
+  background: var(--bg);
+  overflow: hidden;
+  position: relative;
+}
+
+#topbar {
+  height: 56px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  box-shadow: var(--shadow);
+}
+
+#app-title {
+  font-size: 20px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+#demo-badge {
+  background: var(--warning-tint);
+  color: var(--amber-chip-text);
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#tabbar {
+  height: 48px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: stretch;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+#content {
+  height: 546px;
+  overflow: hidden;
+  position: relative;
+}
+
+#content.with-actionbar { height: 482px; }
+
+.screen { height: 100%; overflow: hidden; padding: 8px; }
+
+.scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+h2.sec {
+  font-size: 18px;
+  font-weight: bold;
+  margin: 0 0 8px 0;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+.hidden { display: none !important; }
