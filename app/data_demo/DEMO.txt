@@ -1,0 +1,2 @@
+DEMO DATA - fake 14-day history for training/review, not real.
+Real first run starts with an empty data\ folder.

@@ -1,0 +1,21 @@
+# Build outputs, caches and local data - never committed.
+__pycache__/
+*.pyc
+*.pyo
+dist/
+report.txt
+*.log
+
+# Live databases and backups (real owner data stays on the target PC only).
+# NOTE: patterns with a slash anchor to this file's folder, so bare names
+# are used to match app/data/ and app/data_demo/ at any depth.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*-wal
+*-shm
+backups/
+
+# Local workspace scraps.
+.zwork/
