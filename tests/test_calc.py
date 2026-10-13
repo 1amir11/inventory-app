@@ -169,7 +169,7 @@ class TestMoney(unittest.TestCase):
     def test_cost_rounds_half_up(self):
         # 1 g of coffee at 3000 piasters/kg -> 3 piasters exactly.
         self.assertEqual(calc.cost_piasters(1, 3000, 1000), 3)
-        # 0.5 g equivalent: (2*1*1000+... ) check 1 base @ 1500/1000 = 1.5 -> 2.
+        # 1 base @ 1500/1000 = 1.5 -> 2.
         self.assertEqual(calc.cost_piasters(1, 1500, 1000), 2)
 
     def test_profit(self):
@@ -178,6 +178,110 @@ class TestMoney(unittest.TestCase):
     def test_variance(self):
         self.assertEqual(calc.usage_variance(1200, 1000), 200)
         self.assertEqual(calc.usage_variance(800, 1000), -200)
+
+
+class TestEgpInput(unittest.TestCase):
+
+    def test_whole(self):
+        self.assertEqual(calc.egp_to_piasters("15"), 1500)
+        self.assertEqual(calc.egp_to_piasters(15), 1500)
+        self.assertEqual(calc.egp_to_piasters(15.0), 1500)
+
+    def test_decimals(self):
+        self.assertEqual(calc.egp_to_piasters("15.50"), 1550)
+        self.assertEqual(calc.egp_to_piasters(15.5), 1550)
+        self.assertEqual(calc.egp_to_piasters("0.99"), 99)
+        self.assertEqual(calc.egp_to_piasters(" 7.25 "), 725)
+
+    def test_rejected(self):
+        for bad in ("10.123", "-5", "-0.01", "abc", "", "  ",
+                    "1.2.3", None, True, float("nan"), float("inf"),
+                    10.001, [15]):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                calc.egp_to_piasters(bad)
+
+
+class TestCoffeeRecipeCost(unittest.TestCase):
+
+    def _products(self):
+        return [
+            {"id": 1, "name": "tea", "sold_source": "derived_from_material",
+             "source_material_id": 11, "recipe_qty_base": 1, "uses_cup": True,
+             "recipe": [{"material_id": 11, "qty_base": 1},
+                        {"material_id": 10, "qty_base": 1}]},
+            {"id": 2, "name": "coffee",
+             "sold_source": "derived_remainder_of_cup",
+             "coffee_material_id": 12, "uses_cup": True,
+             "recipe": [{"material_id": 12, "qty_base": 5},
+                        {"material_id": 10, "qty_base": 1},
+                        {"material_id": 14, "qty_base": 8}]},
+        ]
+
+    def _run(self, cup_price):
+        products = self._products()
+        consumed = {10: 50, 11: 30, 12: 200, 14: 160}
+        prices = {1: 1500, 2: 1500}
+        unit_costs = {10: (cup_price, 1), 11: (100, 1), 12: (3000, 1000),
+                      14: (500, 1000)}
+        return calc.compute_day_summary(
+            products, consumed, prices, unit_costs, cups_consumed=50,
+            manual_sales={}, coffee_gpc=10.0)
+
+    def test_other_lines_included_coffee_line_skipped(self):
+        out = self._run(80)
+        coffee = {ln["product_id"]: ln for ln in out["lines"]}[2]
+        # 20 coffee cups: measured 20*10g @3000/1000 = 600, cup 20*1*80 =
+        # 1600, milk 20*8g @500/1000 = 80. The coffee-material recipe line
+        # (5 g) is skipped, not double counted.
+        self.assertEqual(coffee["qty_sold"], 20)
+        self.assertEqual(coffee["cost"], 600 + 1600 + 80)
+
+    def test_cup_price_moves_coffee_profit(self):
+        cheap = {ln["product_id"]: ln
+                 for ln in self._run(80)["lines"]}[2]
+        dear = {ln["product_id"]: ln
+                for ln in self._run(100)["lines"]}[2]
+        self.assertEqual(cheap["profit"] - dear["profit"], 20 * 20)
+
+
+class TestSharedVariance(unittest.TestCase):
+
+    def test_chicken_shared_by_two_dishes(self):
+        products = [
+            {"id": 1, "name": "chicken plate",
+             "sold_source": "manual", "uses_cup": False,
+             "recipe": [{"material_id": 21, "qty_base": 250}]},
+            {"id": 2, "name": "chicken sandwich",
+             "sold_source": "manual", "uses_cup": False,
+             "recipe": [{"material_id": 21, "qty_base": 150}]},
+            {"id": 3, "name": "potato plate",
+             "sold_source": "manual", "uses_cup": False,
+             "recipe": [{"material_id": 22, "qty_base": 200}]},
+        ]
+        # Sold 4 plates + 2 sandwiches: expected chicken = 4*250 + 2*150.
+        consumed = {21: 1400, 22: 600}
+        out = calc.compute_day_summary(
+            products, consumed, {1: 6000, 2: 3000, 3: 2500},
+            {21: (12000, 1000), 22: (2000, 1000)}, cups_consumed=0,
+            manual_sales={1: 4, 2: 2, 3: 3},
+            material_names={21: "chicken", 22: "potato"})
+        by_id = {ln["product_id"]: ln for ln in out["lines"]}
+        # Per-material list: chicken actual 1400 vs expected 1300.
+        var = {v["material_id"]: v for v in out["variance"]}
+        self.assertEqual(var[21]["variance_base"], 100)
+        self.assertEqual(var[21]["expected_base"], 1300)
+        self.assertEqual(var[21]["actual_base"], 1400)
+        self.assertEqual(sorted(var[21]["dishes"]),
+                         ["chicken plate", "chicken sandwich"])
+        self.assertEqual(var[21]["material_name"], "chicken")
+        # 100 g @ 12000/1000 = 1200 piasters over.
+        self.assertEqual(var[21]["variance_piasters"], 1200)
+        # Shared material appears on NO dish line...
+        self.assertNotIn("variance_base", by_id[1])
+        self.assertNotIn("variance_base", by_id[2])
+        # ...while the exclusive potato variance stays on its dish.
+        self.assertEqual(by_id[3]["variance_base"], 0)
+        self.assertEqual(var[22]["variance_base"], 0)
 
 
 class TestSpikeAndValidation(unittest.TestCase):
@@ -215,6 +319,23 @@ def _demo_products():
 
 class TestDaySummary(unittest.TestCase):
 
+    def test_negative_consumption_clamped(self):
+        # A day still being entered: closing typed before receipts gives a
+        # negative consumption; the summary clamps to 0 with a warning
+        # instead of raising.
+        products = [
+            {"id": 1, "name": "tea", "sold_source": "derived_from_material",
+             "source_material_id": 11, "recipe_qty_base": 1, "uses_cup": True,
+             "recipe": [{"material_id": 11, "qty_base": 1}]},
+        ]
+        out = calc.compute_day_summary(
+            products, {11: -9}, {1: 1500}, {11: (100, 1)}, cups_consumed=0,
+            manual_sales={})
+        self.assertEqual(out["lines"][0]["qty_sold"], 0)
+        self.assertEqual(out["lines"][0]["cost"], 0)
+        self.assertTrue(any("negative consumption" in w
+                            for w in out["warnings"]))
+
     def test_full_day(self):
         products = _demo_products()
         consumed = {10: 50, 11: 30, 12: 200, 13: 1000}
@@ -240,6 +361,14 @@ class TestDaySummary(unittest.TestCase):
         self.assertEqual(out["total_revenue"], 85000)
         self.assertEqual(out["total_profit"],
                          out["total_revenue"] - out["total_cost"])
+        # Explicit drink cups + per-material variance list.
+        self.assertEqual(out["total_cups"], 50)
+        self.assertEqual({d["name"]: d["cups"]
+                          for d in out["cups_by_drink"]},
+                         {"tea": 30, "coffee": 20})
+        var = {v["material_id"]: v for v in out["variance"]}
+        self.assertEqual(var[13]["variance_base"], 0)  # potato, exclusive
+        self.assertEqual(by_id[3]["variance_base"], 0)
 
     def test_reconciliation_warns(self):
         products = _demo_products()

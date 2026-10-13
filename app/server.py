@@ -40,6 +40,9 @@ PORT = 8001
 ALLOWED_HOST_NAMES = ("127.0.0.1", "localhost", "[::1]")
 MAX_BODY_BYTES = 64 * 1024
 
+MATERIAL_ACTION_RE = re.compile(r"^/api/materials/(\d+)/(rename|set_active)$")
+PRODUCT_ACTION_RE = re.compile(r"^/api/products/(\d+)/(rename|set_active)$")
+
 
 class AppContext(object):
     """Shared services handed to every route."""
@@ -86,6 +89,7 @@ class Router(object):
     def __init__(self):
         self.gets = {}
         self.posts = {}
+        self.patterns = []  # (compiled regex, {action: handler}) for POST
 
     def get(self, path, handler):
         self.gets[path] = handler
@@ -93,12 +97,27 @@ class Router(object):
     def post(self, path, handler):
         self.posts[path] = handler
 
+    def post_actions(self, regex, handlers):
+        """Register a /api/<entity>/<id>/<action> family. The regex must
+        capture (id, action); the handler is called as
+        handler(context, request, item_id=<id>)."""
+        self.patterns.append((regex, handlers))
+
     def resolve(self, method, path):
         table = self.gets if method == "GET" else self.posts
         handler = table.get(path)
         if handler is not None:
-            return handler
-        return None
+            return handler, {}
+        if method == "POST":
+            for regex, handlers in self.patterns:
+                match = regex.match(path)
+                if match is None:
+                    continue
+                target = handlers.get(match.group(2))
+                if target is None:
+                    continue
+                return target, {"item_id": int(match.group(1))}
+        return None, None
 
 
 def page_index(context, request):
@@ -137,6 +156,15 @@ def build_router():
     router.get("/api/export.csv", routes_inventory.api_export_csv)
     router.post("/api/backup", routes_inventory.api_backup)
     router.get("/api/backups", routes_inventory.api_list_backups)
+    router.get("/api/days", routes_inventory.api_days)
+    router.post_actions(MATERIAL_ACTION_RE, {
+        "rename": routes_inventory.api_rename_material,
+        "set_active": routes_inventory.api_set_material_active,
+    })
+    router.post_actions(PRODUCT_ACTION_RE, {
+        "rename": routes_inventory.api_rename_product,
+        "set_active": routes_inventory.api_set_product_active,
+    })
     router.post("/api/heartbeat", routes_system.api_heartbeat)
     router.post("/api/shutdown", routes_system.api_shutdown)
     router.get("/api/shutdown-status", routes_system.api_shutdown_status)
@@ -194,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_body()
             request = http_kit.Request(
                 method, self.path, self.headers, body, self.client_address)
-            handler = ROUTER.resolve(method, request.path)
+            handler, kwargs = ROUTER.resolve(method, request.path)
             if handler is None:
                 if method == "GET" and _is_asset(request.path):
                     response = http_kit.serve_file(request.path.lstrip("/"))
@@ -203,7 +231,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ApiError(404, "not_found")
             else:
-                response = handler(self.context, request)
+                response = handler(self.context, request, **kwargs)
             self._send(response)
         except ApiError as exc:
             self._send(http_kit.from_api_error(exc))

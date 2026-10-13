@@ -66,6 +66,31 @@ def _audit(conn, user_id, action, entity, entity_id=None, business_date=None,
          reason, db.now_iso()))
 
 
+def _parse_money(body, code="bad_price"):
+    # type: (dict, str) -> int
+    """Price in piasters from either "price_piasters" (int) or "price_egp"
+    (string/number with up to 2 decimals). Staff type EGP; the UI never asks
+    for piasters. Both present, or neither, is a 400."""
+    has_p = body.get("price_piasters") is not None
+    has_e = body.get("price_egp") is not None
+    if has_p == has_e:
+        raise ApiError(400, code, S["err_invalid"])
+    if has_e:
+        try:
+            amount = calc.egp_to_piasters(body.get("price_egp"))
+        except ValueError:
+            raise ApiError(400, code, S["err_invalid"])
+    else:
+        try:
+            amount = int(body.get("price_piasters"))
+        except (TypeError, ValueError):
+            raise ApiError(400, code, S["err_invalid"])
+    err = calc.check_price_piasters(amount)
+    if err:
+        raise ApiError(400, code, S["err_invalid"])
+    return amount
+
+
 def _material_or_400(conn, material_id):
     row = conn.execute("SELECT * FROM materials WHERE id = ?",
                        (material_id,)).fetchone()
@@ -217,6 +242,8 @@ def build_day_report(conn, business_date):
                         for mid in _cup_material_ids(conn))
     manual = _manual_sales(conn, business_date)
     yield_info, _fb = _coffee_yield_for(conn, business_date)
+    material_names = {m["id"]: m["name"] for m in db.list_materials(
+        conn, active_only=False)}
     gpc = yield_info["grams_per_cup"] if yield_info["source"] == "measured" \
         else None
     # An estimate still prices coffee (flagged), so the owner sees numbers.
@@ -227,7 +254,8 @@ def build_day_report(conn, business_date):
             gpc = 10.0
     summary = calc.compute_day_summary(products, consumed, prices, costs,
                                        cups_consumed, manual_sales=manual,
-                                       coffee_gpc=gpc)
+                                       coffee_gpc=gpc,
+                                       material_names=material_names)
     if yield_info["source"] == "estimate":
         summary["warnings"].append("coffee cost uses the initial estimate"
                                   " (no measured history yet)")
@@ -435,13 +463,10 @@ def api_add_unit(context, request):
 
 
 def _insert_cost(conn, material_id, cost, uid):
+    price = _parse_money(cost, "bad_cost")
     try:
-        price = int(cost.get("price_piasters"))
         unit_id = int(cost.get("unit_id"))
     except (TypeError, ValueError):
-        raise ApiError(400, "bad_cost", S["err_invalid"])
-    err = calc.check_price_piasters(price)
-    if err:
         raise ApiError(400, "bad_cost", S["err_invalid"])
     eff = cost.get("effective_date") or ""
     if not calc.valid_business_date(eff):
@@ -548,13 +573,9 @@ def _unit_factor(conn, unit_id):
 
 
 def _insert_price(conn, product_id, price, uid):
-    try:
-        amount = int(price.get("price_piasters"))
-    except (TypeError, ValueError, AttributeError):
+    if not isinstance(price, dict):
         raise ApiError(400, "bad_price", S["err_invalid"])
-    err = calc.check_price_piasters(amount)
-    if err:
-        raise ApiError(400, "bad_price", S["err_invalid"])
+    amount = _parse_money(price)
     eff = price.get("effective_date") or ""
     if not calc.valid_business_date(eff):
         raise ApiError(400, "bad_date", S["err_bad_date"])
@@ -1007,6 +1028,122 @@ def api_range_report(context, request):
             totals["cost"] += rep["total_cost"]
             totals["profit"] += rep["total_profit"]
         return http_kit.json_response({"days": out_days, "totals": totals})
+    finally:
+        conn.close()
+
+
+def api_days(context, request):
+    """Archive list: one slim row per day (date, status, revenue, cost,
+    profit). Past days recompute from effective-dated data, so the archive
+    always shows each day exactly as recorded."""
+    date_from = _date(request.query.get("from") or "")
+    date_to = _date(request.query.get("to") or "")
+    if date_to < date_from:
+        raise ApiError(400, "bad_range", S["err_invalid"])
+    conn = context.connect()
+    try:
+        days = conn.execute(
+            "SELECT business_date, status FROM business_days"
+            " WHERE business_date BETWEEN ? AND ? ORDER BY business_date",
+            (date_from, date_to)).fetchall()
+        out = []
+        for day in days:
+            rep = build_day_report(conn, day["business_date"])
+            out.append({"date": day["business_date"],
+                        "status": day["status"],
+                        "revenue": rep["total_revenue"],
+                        "cost": rep["total_cost"],
+                        "profit": rep["total_profit"]})
+        return http_kit.json_response({"days": out})
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Rename / deactivate (soft only: rows are never deleted, history intact)
+# ---------------------------------------------------------------------------
+
+def _rename_row(conn, table, item_id, name, uid, entity):
+    row = conn.execute("SELECT * FROM %s WHERE id = ?" % table,
+                       (item_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "not_found", S["err_not_found"])
+    clean = (name or "").strip()
+    if not clean or len(clean) > 100:
+        raise ApiError(400, "bad_name", S["err_invalid"])
+    with conn:
+        conn.execute("UPDATE %s SET name = ? WHERE id = ?" % table,
+                     (clean, item_id))
+        _audit(conn, uid, "rename", entity, item_id,
+               before={"name": row["name"]}, after={"name": clean})
+    return http_kit.json_response({"ok": True})
+
+
+def _set_active_row(conn, table, item_id, active, uid, entity):
+    row = conn.execute("SELECT * FROM %s WHERE id = ?" % table,
+                       (item_id,)).fetchone()
+    if row is None:
+        raise ApiError(404, "not_found", S["err_not_found"])
+    if active not in (0, 1):
+        raise ApiError(400, "bad_active", S["err_invalid"])
+    with conn:
+        conn.execute("UPDATE %s SET active = ? WHERE id = ?" % table,
+                     (active, item_id))
+        _audit(conn, uid, "set_active", entity, item_id,
+               before={"active": row["active"]}, after={"active": active})
+    return http_kit.json_response({"ok": True})
+
+
+def _active_flag(body):
+    try:
+        active = int(body.get("active"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "bad_active", S["err_invalid"])
+    if active not in (0, 1):
+        raise ApiError(400, "bad_active", S["err_invalid"])
+    return active
+
+
+def api_rename_material(context, request, item_id):
+    body = _body(request)
+    conn = context.connect()
+    try:
+        uid = _user_id(conn, body)
+        return _rename_row(conn, "materials", item_id, body.get("name"),
+                           uid, "material")
+    finally:
+        conn.close()
+
+
+def api_set_material_active(context, request, item_id):
+    body = _body(request)
+    conn = context.connect()
+    try:
+        uid = _user_id(conn, body)
+        return _set_active_row(conn, "materials", item_id,
+                               _active_flag(body), uid, "material")
+    finally:
+        conn.close()
+
+
+def api_rename_product(context, request, item_id):
+    body = _body(request)
+    conn = context.connect()
+    try:
+        uid = _user_id(conn, body)
+        return _rename_row(conn, "products", item_id, body.get("name"),
+                           uid, "product")
+    finally:
+        conn.close()
+
+
+def api_set_product_active(context, request, item_id):
+    body = _body(request)
+    conn = context.connect()
+    try:
+        uid = _user_id(conn, body)
+        return _set_active_row(conn, "products", item_id,
+                               _active_flag(body), uid, "product")
     finally:
         conn.close()
 

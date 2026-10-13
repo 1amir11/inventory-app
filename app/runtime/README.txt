@@ -1,5 +1,5 @@
-PUT PORTABLE PYTHON 3.8 HERE
-============================
+KITCHEN INVENTORY - PORTABLE RUNTIME FOLDER
+===========================================
 
 This folder must contain the Python 3.8 embeddable package (64-bit),
 so the app runs on the Windows 7 target PC with NOTHING installed.
@@ -18,8 +18,8 @@ Where to put it:
 
   1. Extract the ZIP file.
   2. Copy EVERYTHING it contains (python.exe, python38.dll, python38._pth,
-     python310.zip is NOT in 3.8 - just copy all files as they are)
-     directly INTO THIS folder, so that you end up with:
+     python38.zip, sqlite3.dll, _sqlite3.pyd, ... - just copy all files
+     as they are) directly INTO THIS folder, so that you end up with:
 
          app\runtime\python.exe
          app\runtime\python38.dll
@@ -35,39 +35,49 @@ Where to put it:
   3. IMPORTANT - ISOLATED MODE (python38._pth): the embeddable package
      runs Python in isolated mode, so the folder containing a script is
      NOT automatically on sys.path. "import db" would fail with
-     ModuleNotFoundError even though db.py sits next to the script.
+     ModuleNotFoundError even though db.py sits right next to the script.
 
-     This is ALREADY HANDLED in the code: db.py / seed.py / server.py /
-     launcher.py / make_shortcut.py each add their own folder to sys.path
-     before importing a sibling module. There is nothing you must edit.
+     This is ALREADY HANDLED in the code: every app module (db.py,
+     calc.py, server.py, launcher.py, seed_demo.py, routes_*.py,
+     make_shortcut.py) adds its own folder to sys.path before importing
+     a sibling module. There is nothing you must edit.
 
      The alternative (also fine, if you ever prefer it) is to add the app
-     folder to python38._pth - for example a line containing:  ..
-     The sys.path approach was chosen because it keeps working even if the
-     app folder is moved or the _pth file is replaced by a fresh download.
+     folder to python38._pth - for example a line containing just:  ..
+     The sys.path approach was chosen because it keeps working even if
+     the app folder is moved or the _pth file is replaced by a fresh
+     download.
 
      To verify on the target PC, run:
          runtime\python.exe check_imports.py
-     It prints [OK] / [FAIL] for every import and exit code 0 when all is
-     well. Tested here with an isolated interpreter in both modes.
+     It prints [OK] / [FAIL] for every import and exit code 0 when all
+     is well.
 
-  4. Copy the whole app/ folder to a USB stick, then to the Windows 7 PC.
+  4. Transfer to the target PC with a phone USB cable (MTP): copy the
+     whole app/ folder to D:\ on the Windows 7 PC, then right-click the
+     zip (if you transferred a zip) -> "Extract All" into D:\, so you
+     end up with D:\app\start.bat. There is no USB stick step and no
+     installer: double-click start.bat and the app opens on its own.
 
-BROWSER (optional but recommended for the Win7 target):
-  A portable browser can be bundled at app\runtime\browser\ (chrome.exe
-  or firefox.exe). The launcher checks that folder FIRST, before any
-  installed browser. If no usable browser is found anywhere, the launcher
-  shows an Arabic message instead of falling back to Internet Explorer.
+BROWSER (bundled, required for the kiosk):
+  Portable Firefox ESR 115.42.0 lives EXTRACTED at app\runtime\browser\
+  (firefox.exe next to distribution\policies.json). There is no Chrome
+  involved: the launcher checks runtime\browser\ FIRST, then any system
+  Firefox, and refuses to fall back to Internet Explorer - if no usable
+  browser exists it shows an Arabic message instead. Keep the
+  distribution\policies.json file where it is (it disables updates,
+  telemetry and the first-run pages so the kiosk always opens clean).
 
 Windows 7 note: if python.exe fails to start with a DLL/api-ms-win-crt
 error, the target PC needs the Microsoft updates KB2999226 (UCRT) and
 KB2533623. start.bat prints this hint automatically on failure.
 
 NOTE: sqlite3.dll and _sqlite3.pyd ARE included in the embeddable package,
-so no extra steps are needed for the database.
+so no extra steps are needed for the database (SQLite 3.35.5).
 
-DATABASE FILES (separate from the smoke test):
-  app\data\cafeteria.db  - the real POS database (db.py + seed.py)
-  app\data\test.db       - the old smoke-test database (server.py)
-  Keep data/ when replacing app code; it is never overwritten.
-
+DATABASE FILES:
+  app\data\kitchen.db  - the REAL database, created on first run.
+  The package ships data/ EMPTY and updates never overwrite it: to
+  update, replace the app code files and keep the data/ folder as is.
+  Training/demo history (if generated with seed_demo.py) lives in
+  app\data_demo\ and is never part of the package.

@@ -289,6 +289,44 @@ def coffee_yield(daily_pairs, bag_size_base, fallback_gpc):
 
 
 # ---------------------------------------------------------------------------
+# Money input: staff type EGP (never piasters)
+# ---------------------------------------------------------------------------
+
+def egp_to_piasters(value):
+    # type: (object) -> int
+    """Convert an EGP amount (string or number, up to 2 decimals) to integer
+    piasters. The conversion is exact; more than 2 decimals, negatives,
+    NaN/inf and non-numeric input raise ValueError (the API turns it into a
+    400 response)."""
+    if isinstance(value, bool):
+        raise ValueError("amount must be a number")
+    if isinstance(value, (int, float)):
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError("amount is not a number")
+        text = str(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError("amount is empty")
+    else:
+        raise ValueError("amount must be a number")
+    neg = False
+    if text[:1] in ("+", "-"):
+        neg = text[:1] == "-"
+        text = text[1:]
+    if not text or text.count(".") > 1 or \
+            not text.replace(".", "", 1).isdigit():
+        raise ValueError("amount is not a number")
+    whole, _, frac = text.partition(".")
+    if len(frac) > 2:
+        raise ValueError("at most 2 decimals allowed")
+    piasters = int(whole or "0") * 100 + int((frac + "00")[:2])
+    if neg:
+        raise ValueError("amount must not be negative")
+    return piasters
+
+
+# ---------------------------------------------------------------------------
 # Money: cost, revenue, profit, variance (integer piasters, half-up rounding)
 # ---------------------------------------------------------------------------
 
@@ -337,20 +375,45 @@ def usage_variance(actual_consumed_base, expected_base):
 # manual_sales:  {product_id: qty_sold} for sold_source == 'manual'
 # coffee_gpc:    measured grams per cup (None -> remainder coffee cost is 0
 #                and a warning is emitted; the owner must fix the yield)
+# material_names: optional {material_id: name} used to label the "variance"
+#                per-material list.
 #
-# ASSUMPTION (documented): a remainder-source (coffee) product's cost is
-# cups_sold * measured_gpc * cost-per-gram, because no per-cup recipe qty is
-# ever entered. All other products cost recipe qty x unit cost.
+# Returns lines (per-dish variance_base/variance_egp only for materials that
+# dish uses alone), variance (one entry per material used by manual dishes:
+# actual vs summed expected, in base units and piasters, with dish names),
+# cups_by_drink + total_cups, reconciliation and warnings.
+#
+# ASSUMPTION (documented): a remainder-source (coffee) product's cost is the
+# MEASURED coffee cost (cups x grams-per-cup x effective cost per gram) PLUS
+# every OTHER recipe line (packaging cup, milk, sugar, ...) x cups. The
+# coffee material's own recipe line, if present, is always skipped so the
+# measured coffee is never double counted. All other products cost recipe
+# qty x unit cost.
+# material_names: optional {material_id: name} for the variance list labels.
 
 def compute_day_summary(products, consumed, prices, unit_costs, cups_consumed,
-                        manual_sales=None, coffee_gpc=None):
-    # type: (List[Dict[str, Any]], Dict[int, int], Dict[int, int], Dict[int, Tuple[int, int]], int, Optional[Dict[int, int]], Optional[float]) -> Dict[str, Any]
+                        manual_sales=None, coffee_gpc=None,
+                        material_names=None):
+    # type: (List[Dict[str, Any]], Dict[int, int], Dict[int, int], Dict[int, Tuple[int, int]], int, Optional[Dict[int, int]], Optional[float], Optional[Dict[int, str]]) -> Dict[str, Any]
     manual_sales = manual_sales or {}
+    material_names = material_names or {}
     lines = []  # type: List[Dict[str, Any]]
     warnings = []  # type: List[str]
     total_revenue = 0
     total_cost = 0
     total_cups = 0
+    cups_by_drink = []  # type: List[Dict[str, Any]]
+
+    # A day still being entered can show negative consumption (a closing was
+    # typed before its receipts). Clamp to 0 with a warning instead of
+    # crashing: the report is a live preview until the day is closed.
+    consumed = dict(consumed)
+    for mat_id in sorted(consumed):
+        if consumed[mat_id] < 0:
+            warnings.append("negative consumption %d for material %s; "
+                            "treated as 0 until the day is complete"
+                            % (consumed[mat_id], mat_id))
+            consumed[mat_id] = 0
 
     # First pass: sachet-derived and manual products (need their cups before
     # the coffee remainder can be computed).
@@ -407,25 +470,41 @@ def compute_day_summary(products, consumed, prices, unit_costs, cups_consumed,
 
         revenue = revenue_piasters(qty, price)
         cost = 0
-        variance_base = None  # type: Optional[int]
-        variance_egp = None  # type: Optional[int]
         if source == "derived_remainder_of_cup":
-            mat_id = product.get("coffee_material_id")
-            if mat_id is not None and coffee_gpc is not None and qty:
-                unit = unit_costs.get(mat_id)
-                if unit is not None:
-                    # cost = qty cups * gpc grams * price/factor, rounded to
-                    # piasters via integer arithmetic on milli-grams.
+            coffee_mid = product.get("coffee_material_id")
+            if qty:
+                if coffee_mid is not None and coffee_gpc is not None:
+                    unit = unit_costs.get(coffee_mid)
+                    if unit is not None:
+                        # Measured coffee part, integer arithmetic on
+                        # milli-grams, halves round up.
+                        unit_price, factor = unit
+                        milli_grams = int(round(qty * coffee_gpc * 1000.0))
+                        cost += (2 * milli_grams * unit_price
+                                 + factor * 1000) // (2 * factor * 1000)
+                    else:
+                        warnings.append(
+                            "no effective cost for coffee material on %s"
+                            % name)
+                elif coffee_mid is None or coffee_gpc is None:
+                    warnings.append("coffee yield unavailable; coffee part "
+                                    "of %s cost set to 0" % name)
+                # Every OTHER recipe line (cup, milk, sugar, ...) x cups.
+                # The coffee material's own line is skipped: it is already
+                # priced by the measured yield above.
+                for line in product.get("recipe", []):
+                    mat_id = line.get("material_id")
+                    if mat_id == coffee_mid:
+                        continue
+                    need = qty * line.get("qty_base", 0)
+                    unit = unit_costs.get(mat_id)
+                    if unit is None:
+                        warnings.append(
+                            "no effective cost for material %s in %s"
+                            % (mat_id, name))
+                        continue
                     unit_price, factor = unit
-                    milli_grams = int(round(qty * coffee_gpc * 1000.0))
-                    cost = (2 * milli_grams * unit_price + factor * 1000) // (
-                        2 * factor * 1000)
-                else:
-                    warnings.append("no effective cost for coffee material "
-                                    "on %s" % name)
-            elif qty and (mat_id is None or coffee_gpc is None):
-                warnings.append("coffee yield unavailable; cost of %s set "
-                                "to 0" % name)
+                    cost += cost_piasters(need, unit_price, factor)
         else:
             for line in product.get("recipe", []):
                 mat_id = line.get("material_id")
@@ -437,39 +516,82 @@ def compute_day_summary(products, consumed, prices, unit_costs, cups_consumed,
                     continue
                 unit_price, factor = unit
                 cost += cost_piasters(need, unit_price, factor)
-            if source == "manual":
-                # Compare expected usage with actual consumption per material.
-                total_var = 0
-                total_var_egp = 0
-                for line in product.get("recipe", []):
-                    mat_id = line.get("material_id")
-                    expected = qty * line.get("qty_base", 0)
-                    actual = consumed.get(mat_id, 0)
-                    # NOTE: shared materials across dishes mix in `consumed`;
-                    # the variance is therefore indicative, reported per line
-                    # in detail and summed here for the headline.
-                    total_var += usage_variance(actual, expected)
-                    unit = unit_costs.get(mat_id)
-                    if unit is not None:
-                        unit_price, factor = unit
-                        total_var_egp += cost_piasters(
-                            abs(actual - expected), unit_price, factor) * (
-                                1 if actual >= expected else -1)
-                variance_base = total_var
-                variance_egp = total_var_egp
 
         profit = profit_piasters(revenue, cost)
         total_revenue += revenue
         total_cost += cost
         if product.get("uses_cup"):
             total_cups += qty
+            cups_by_drink.append({"product_id": pid, "name": name,
+                                  "cups": qty})
         line = {"product_id": pid, "name": name, "qty_sold": qty,
                 "method": method, "revenue": revenue, "cost": cost,
                 "profit": profit}
-        if variance_base is not None:
-            line["variance_base"] = variance_base
-            line["variance_egp"] = variance_egp
         lines.append(line)
+
+    # Dish variance, computed ONCE per material per day: actual consumed minus
+    # the sum of (sold x recipe qty) over ALL manual products. Per-dish
+    # variance fields are attached only for materials that dish uses alone;
+    # shared materials live only in the per-material list below.
+    manual_products = [p for p in products
+                       if p.get("sold_source") == "manual"]
+    users_of = {}  # type: Dict[int, List[int]]
+    for product in manual_products:
+        for line in product.get("recipe", []):
+            users_of.setdefault(line.get("material_id"), []).append(
+                product["id"])
+    variance = []  # type: List[Dict[str, Any]]
+    exclusive_expected = {}  # type: Dict[int, Dict[int, int]]
+    for mat_id, user_ids in users_of.items():
+        expected_total = 0
+        dishes = []
+        for product in manual_products:
+            if product["id"] not in user_ids:
+                continue
+            qty = manual_sales.get(product["id"], 0)
+            for line in product.get("recipe", []):
+                if line.get("material_id") == mat_id:
+                    expected_total += qty * line.get("qty_base", 0)
+            dishes.append(product.get("name", ""))
+        actual = consumed.get(mat_id, 0)
+        var = usage_variance(actual, expected_total)
+        var_egp = 0
+        unit = unit_costs.get(mat_id)
+        if unit is None:
+            warnings.append("no effective cost for variance of material %s"
+                            % mat_id)
+        else:
+            unit_price, factor = unit
+            var_egp = cost_piasters(abs(var), unit_price, factor) * (
+                1 if var >= 0 else -1)
+        variance.append({"material_id": mat_id,
+                         "material_name": material_names.get(mat_id),
+                         "actual_base": actual,
+                         "expected_base": expected_total,
+                         "variance_base": var,
+                         "variance_piasters": var_egp,
+                         "dishes": dishes})
+        if len(user_ids) == 1:
+            exclusive_expected.setdefault(user_ids[0], {})[mat_id] = (
+                expected_total)
+    for line in lines:
+        pid = line["product_id"]
+        exclusive = exclusive_expected.get(pid)
+        if not exclusive:
+            continue
+        dish_var = 0
+        dish_var_egp = 0
+        for mat_id, expected in exclusive.items():
+            actual = consumed.get(mat_id, 0)
+            var = usage_variance(actual, expected)
+            dish_var += var
+            unit = unit_costs.get(mat_id)
+            if unit is not None:
+                unit_price, factor = unit
+                dish_var_egp += cost_piasters(
+                    abs(var), unit_price, factor) * (1 if var >= 0 else -1)
+        line["variance_base"] = dish_var
+        line["variance_egp"] = dish_var_egp
 
     reconciliation = {
         "cups_consumed": cups_consumed,
@@ -482,6 +604,8 @@ def compute_day_summary(products, consumed, prices, unit_costs, cups_consumed,
     return {"lines": lines, "total_revenue": total_revenue,
             "total_cost": total_cost,
             "total_profit": profit_piasters(total_revenue, total_cost),
+            "cups_by_drink": cups_by_drink, "total_cups": total_cups,
+            "variance": variance,
             "reconciliation": reconciliation, "warnings": warnings}
 
 

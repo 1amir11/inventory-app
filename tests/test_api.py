@@ -10,6 +10,7 @@
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -270,6 +271,123 @@ class ApiCase(unittest.TestCase):
                          row["opening_default_base"])
 
     def test_02_reason_and_spike_flows(self):
+        st, body = self.get("/api/session")
+        uid = body["users"][0]["id"]
+        st, mats = self.get("/api/materials")
+        tea = [m for m in mats["materials"] if m["name"] == "tea"][0]
+        piece = [u for u in tea["units"] if u["unit_name"] == "piece"][0]["id"]
+        day = "2026-10-02"
+        # Opening differs from default (4): reason required.
+        st, bd = self.call("POST", "/api/day/count",
+                           {"date": day, "material_id": tea["id"],
+                            "field": "opening", "qty_entered": 50.0,
+                            "unit_id": piece, "user_id": uid})
+        self.assertEqual(st, 400)
+        self.assertEqual(bd["error"], "opening_reason_required")
+        st, bd = self.call("POST", "/api/day/count",
+                           {"date": day, "material_id": tea["id"],
+                            "field": "opening", "qty_entered": 51.0,
+                            "unit_id": piece, "user_id": uid,
+                            "reason": "found box from yesterday"})
+        self.assertEqual(st, 200)
+        # Spike warning: 51 vs 14-day average of 5 (10x = 50).
+        self.assertTrue(bd["warnings"])
+        # Closing above opening + received without reason: blocked.
+        st, bd = self.call("POST", "/api/day/count",
+                           {"date": day, "material_id": tea["id"],
+                            "field": "closing", "qty_entered": 60.0,
+                            "unit_id": piece, "user_id": uid})
+        self.assertEqual(st, 400)
+        self.assertEqual(bd["error"], "closing_reason_required")
+        st, bd = self.call("POST", "/api/day/count",
+                           {"date": day, "material_id": tea["id"],
+                            "field": "closing", "qty_entered": 60.0,
+                            "unit_id": piece, "user_id": uid,
+                            "reason": "miscount, confirmed"})
+        self.assertEqual(st, 200)
+
+    def test_04_money_archive_and_admin(self):
+        st, body = self.get("/api/session")
+        uid = body["users"][0]["id"]
+        st, mats = self.get("/api/materials")
+        tea = [m for m in mats["materials"] if m["name"] == "tea"][0]
+        box = [u for u in tea["units"] if u["unit_name"] == "box"][0]["id"]
+        st, prods = self.get("/api/products")
+        tea_p = [p for p in prods["products"] if p["name"] == "tea"][0]
+
+        # EGP cost input (string with 2 decimals) stores 8025 piasters.
+        st, bd = self.call("POST", "/api/costs",
+                           {"material_id": tea["id"], "unit_id": box,
+                            "price_egp": "80.25",
+                            "effective_date": "2026-10-10", "user_id": uid})
+        self.assertEqual(st, 200, bd)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT price_piasters FROM material_costs"
+                " WHERE material_id = ? ORDER BY id DESC LIMIT 1",
+                (tea["id"],)).fetchone()
+            self.assertEqual(row[0], 8025)
+        finally:
+            conn.close()
+        # Rejected: 3 decimals, both fields, neither field.
+        for bad in ({"price_egp": "10.123"}, {"price_egp": "10",
+                                              "price_piasters": 1000}, {}):
+            payload = {"material_id": tea["id"], "unit_id": box,
+                       "effective_date": "2026-10-10", "user_id": uid}
+            payload.update(bad)
+            st, _bd = self.call("POST", "/api/costs", payload)
+            self.assertEqual(st, 400, bad)
+        # EGP selling price works too.
+        st, bd = self.call("POST", "/api/prices",
+                           {"product_id": tea_p["id"], "price_egp": 20,
+                            "effective_date": "2026-10-10", "user_id": uid})
+        self.assertEqual(st, 200, bd)
+
+        # Archive list: slim rows with revenue/cost/profit.
+        st, body = self.get("/api/days?from=2026-10-01&to=2026-10-05")
+        self.assertEqual(st, 200)
+        by_date = {d["date"]: d for d in body["days"]}
+        self.assertEqual(by_date["2026-10-01"]["status"], "closed")
+        for key in ("revenue", "cost", "profit", "status", "date"):
+            self.assertIn(key, by_date["2026-10-01"])
+        self.assertNotIn("lines", by_date["2026-10-01"])
+
+        # Day report carries explicit drink cups. (Tea shows 21, not 20:
+        # test_01's -1 recount adjustment flows into the report.)
+        st, body = self.get("/api/day?date=2026-10-01")
+        rep = body["report"]
+        self.assertEqual(rep["total_cups"], 30)
+        self.assertEqual({d["name"]: d["cups"]
+                          for d in rep["cups_by_drink"]},
+                         {"tea": 21, "coffee": 9})
+
+        # Rename a product (history intact) and deactivate a material.
+        st, bd = self.call("POST", "/api/products/%d/rename" % tea_p["id"],
+                           {"name": "green tea", "user_id": uid})
+        self.assertEqual(st, 200, bd)
+        st, prods = self.get("/api/products")
+        self.assertIn("green tea", [p["name"] for p in prods["products"]])
+        st, bd = self.call("POST", "/api/materials/%d/set_active"
+                           % tea["id"], {"active": 0, "user_id": uid})
+        self.assertEqual(st, 200, bd)
+        st, mats = self.get("/api/materials")
+        self.assertNotIn(tea["id"], [m["id"] for m in mats["materials"]])
+        # Bad admin calls.
+        st, _bd = self.call("POST", "/api/products/9999/rename",
+                            {"name": "x", "user_id": uid})
+        self.assertEqual(st, 404)
+        st, _bd = self.call("POST", "/api/products/%d/set_active" % tea_p["id"],
+                            {"active": 2, "user_id": uid})
+        self.assertEqual(st, 400)
+        st, _bd = self.call("POST", "/api/products/%d/frobnicate" % tea_p["id"],
+                            {"user_id": uid})
+        self.assertEqual(st, 404)
+        # Restore names/state for a clean fixture.
+        self.call("POST", "/api/products/%d/rename" % tea_p["id"],
+                  {"name": "tea", "user_id": uid})
+        self.call("POST", "/api/materials/%d/set_active" % tea["id"],
+                  {"active": 1, "user_id": uid})
         st, body = self.get("/api/session")
         uid = body["users"][0]["id"]
         st, mats = self.get("/api/materials")

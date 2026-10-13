@@ -14,10 +14,6 @@
 
 import os
 import sqlite3
-import time
-
-import os
-import sqlite3
 import sys
 import time
 

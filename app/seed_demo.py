@@ -170,6 +170,10 @@ def build(dest_dir=None):
                           (hib_pid, hib_mid), (mint_pid, mint_mid)):
             _recipe(conn, u1, pid, smid, 1)
             _recipe(conn, u1, pid, cup_mid, 1)
+        # Every hot drink includes 1 packaging cup - coffee included. The
+        # coffee material itself has no recipe line: it is priced by the
+        # measured yield, never double counted.
+        _recipe(conn, u1, coffee_pid, cup_mid, 1)
         _recipe(conn, u1, potato_pid, potato_mid, 200)
         _recipe(conn, u1, chicken_pid, chicken_mid, 250)
         _recipe(conn, u1, meat_pid, meat_mid, 250)

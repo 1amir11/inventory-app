@@ -21,11 +21,26 @@ import make_package  # noqa: E402
 class TestPackageRules(unittest.TestCase):
 
     def test_dev_databases_detected(self):
-        # The real app/ tree currently holds the demo DB, so a build from
-        # it must REFUSE (never ship any database).
-        found = make_package.find_dev_databases(
-            os.path.join(_ROOT_DIR, "app"))
-        self.assertTrue(any(f.endswith(".db") for f in found))
+        # Plant a database in a TEMP copy: the build must refuse, and the
+        # real repo tree is never assumed to contain one.
+        tmp = tempfile.mkdtemp(prefix="kitchen_pkg_refuse_")
+        try:
+            clean = os.path.join(tmp, "app")
+            shutil.copytree(os.path.join(_ROOT_DIR, "app"), clean,
+                            ignore=shutil.ignore_patterns("*.db", "*.db-*",
+                                                          "__pycache__"))
+            planted = os.path.join(clean, "data", "kitchen.db")
+            if not os.path.isdir(os.path.dirname(planted)):
+                os.makedirs(os.path.dirname(planted))
+            with open(planted, "wb") as handle:
+                handle.write(b"fake")
+            found = make_package.find_dev_databases(clean)
+            self.assertTrue(any(f.endswith(".db") for f in found))
+            with self.assertRaises(make_package.PackageError):
+                make_package.build(os.path.join(tmp, "out.zip"),
+                                   verbose=False, root=clean)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_exclusion_helpers(self):
         self.assertTrue(make_package.is_excluded_file("kitchen.db"))

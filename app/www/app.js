@@ -428,12 +428,12 @@ function init() {
         factor_to_base: parseInt($("m-factor").value, 10)
       }];
     }
-    var cost = parseInt($("m-cost").value, 10);
+    var cost = parseFloat($("m-cost").value);
     apiPost("/api/materials", payload).then(function (body) {
       if (body._status === 200) {
         toast("تم الحفظ.");
         // Attach the first cost to the new extra unit (if any).
-        if (!isNaN(cost) && uname) {
+        if (!isNaN(cost) && cost >= 0 && uname) {
           apiGet("/api/materials").then(function (mb) {
             var m = mb.materials.filter(function (x) {
               return x.id === body.id;
@@ -443,7 +443,7 @@ function init() {
             })[0];
             return apiPost("/api/costs", {
               material_id: body.id, unit_id: u.id,
-              price_piasters: cost, effective_date: state.date
+              price_egp: cost, effective_date: state.date
             });
           }).then(function () { loadItems(); loadDay(); });
         } else { loadItems(); loadDay(); }
