@@ -16,6 +16,10 @@
 import os
 import sys
 
+_CHECK_DIR = os.path.dirname(os.path.abspath(__file__))
+if _CHECK_DIR not in sys.path:
+    sys.path.insert(0, _CHECK_DIR)
+
 
 def fail(msg):
     print("[CHECK-FAIL] " + msg)
@@ -71,6 +75,24 @@ def main():
     except Exception as exc:
         fail("data/ folder is not writable: %r" % exc)
     ok("data/ folder ready: " + data_dir)
+
+    # 4. Browser search (informational only - never fails the check).
+    #    Same order the launcher uses: Chrome -> Edge -> bundled Firefox.
+    try:
+        import launcher as _launcher
+
+        def _show(label, path):
+            if path:
+                print("[CHECK-OK] browser %s: %s" % (label, path))
+            else:
+                print("[CHECK-NOTE] browser %s: missing" % label)
+
+        _show("Chrome", _launcher.find_system_chrome())
+        _show("Edge", _launcher.find_system_edge())
+        _show("bundled Firefox (fallback)", _launcher.find_bundled_firefox())
+        print("[CHECK-OK] " + _launcher.describe_pick())
+    except Exception as exc:
+        print("[CHECK-NOTE] browser listing unavailable: %r" % (exc,))
 
     ok("All checks passed.")
     sys.exit(0)

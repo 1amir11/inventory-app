@@ -4,10 +4,10 @@
 #   1. Single instance: if our server already runs, show an Arabic message,
 #      re-open the page, and exit WITHOUT touching the running copy.
 #   2. Start server.py as a hidden child process (no console window).
-#   3. Find a browser: bundled app/runtime/browser/ first, then Chrome,
-#      Edge, Firefox from standard Win7/Win10+ paths, then the default
-#      browser (only if it is positively Chrome/Edge/Firefox - never IE).
-#   4. Open the page in an app/kiosk window (no address bar / tabs).
+#   3. Find a browser: system Chrome first, then system Edge, then the
+#      bundled Firefox in app/runtime/browser/ as a fallback (never IE).
+#   4. Open the page in a normal WINDOWED app window (taskbar stays
+#      visible, minimize/Alt+Tab keep working) - never fullscreen/kiosk.
 #   5. When the browser window closes, stop the server and exit.
 #
 # Standard library only, Python 3.8. Also runs under pythonw.exe (no
@@ -191,129 +191,154 @@ def open_url_default_browser(url):
 
 
 # ---------------------------------------------------------------------------
-# Browser discovery
+# Browser discovery: system Chrome -> system Edge -> bundled Firefox.
+# Everything opens WINDOWED (taskbar visible, minimize/Alt+Tab work).
+# Fullscreen/kiosk is deliberately never used: on the target PC it locks
+# the operator out of the taskbar until the app is closed completely.
 # ---------------------------------------------------------------------------
 
-BROWSER_SPECS = [
-    # (kind, exe name, relative install paths on Win7 and Win10+)
-    ("chrome", "chrome.exe", [
-        r"Google\Chrome\Application\chrome.exe",
-        r"Google\Chrome Beta\Application\chrome.exe",
-    ]),
-    ("edge", "msedge.exe", [
-        r"Microsoft\Edge\Application\msedge.exe",
-    ]),
-    ("firefox", "firefox.exe", [
-        r"Mozilla Firefox\firefox.exe",
-    ]),
-]
-
-ENV_DIRS_VARS = (
-    "ProgramFiles",
-    "ProgramFiles(x86)",
-    "ProgramW6432",
-    "LOCALAPPDATA",
-    "APPDATA",
+# Exact install paths, in priority order.
+CHROME_PATHS = (
+    r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+    r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+    r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe",
+)
+EDGE_PATHS = (
+    r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+    r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
 )
 
-
-def env_dirs():
-    dirs = []
-    for var in ENV_DIRS_VARS:
-        d = os.environ.get(var)
-        if d:
-            dirs.append(d)
-    return dirs
+# Optional override for testing: KITCHEN_BROWSER=chrome|edge|firefox.
+FORCED_BROWSER_ENV = "KITCHEN_BROWSER"
 
 
-def find_bundled_browser():
-    """A portable browser shipped in app/runtime/browser/ (highest priority)."""
-    bundled_dir = os.path.join(BASE_DIR, "runtime", "browser")
-    found = None
-    for _kind, exe, _rels in BROWSER_SPECS:
-        p = os.path.join(bundled_dir, exe)
-        if os.path.isfile(p):
-            found = (_kind, p)
-            break
-    return bundled_dir, found
+def _app_paths_exe(name):
+    """Install path from the App Paths registry key, or None.
 
-
-def find_system_browser():
-    """First Chrome/Edge/Firefox found in standard paths or PATH."""
-    dirs = env_dirs()
-    for kind, exe, rels in BROWSER_SPECS:
-        for rel in rels:
-            for d in dirs:
-                p = os.path.join(d, rel)
-                if os.path.isfile(p):
-                    return kind, p
-        found = shutil.which(exe)
-        if found:
-            return kind, found
-    return None, None
-
-
-def default_browser_is_supported():
-    """True only if the http:// default browser is Chrome/Edge/Firefox."""
+    HKLM first, then HKCU. stdlib winreg only; never raises.
+    """
     try:
         import winreg
     except ImportError:
-        return False
+        return None
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(
+                root,
+                r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\%s"
+                % name,
+            ) as key:
+                value, _kind = winreg.QueryValueEx(key, "")
+        except OSError:
+            continue
+        if value and os.path.isfile(value):
+            return value
+    return None
+
+
+def _first_existing(paths):
+    """First path that exists on disk, with %VAR% expanded, or None."""
+    for template in paths:
+        expanded = os.path.expandvars(template)
+        if expanded and os.path.isfile(expanded):
+            return expanded
+    return None
+
+
+def find_system_chrome():
+    """System Chrome exe path, or None. Exact paths, then App Paths."""
+    found = _first_existing(CHROME_PATHS)
+    if found:
+        return found
+    found = _app_paths_exe("chrome.exe")
+    if found:
+        return found
+    return shutil.which("chrome.exe")
+
+
+def find_system_edge():
+    """System Edge exe path, or None. Exact paths, then PATH lookup."""
+    found = _first_existing(EDGE_PATHS)
+    if found:
+        return found
+    return shutil.which("msedge.exe")
+
+
+def find_bundled_firefox():
+    """Bundled portable Firefox exe path, or None (fallback only)."""
+    path = os.path.join(BASE_DIR, "runtime", "browser", "firefox.exe")
+    if os.path.isfile(path):
+        return path
+    return None
+
+
+def bundled_browser_dir():
+    return os.path.join(BASE_DIR, "runtime", "browser")
+
+
+def resolve_browser(log_it=True):
+    """Pick the browser: system Chrome -> Edge -> bundled Firefox.
+
+    Returns (kind, path, source) with kind in chrome/edge/firefox.
+    KITCHEN_BROWSER=chrome|edge|firefox forces one browser (testing);
+    a forced browser that is missing is a fatal error, never a silent
+    fallback. Raises RuntimeError with an Arabic message when nothing
+    usable is found.
+    """
+    forced = os.environ.get(FORCED_BROWSER_ENV, "").strip().lower()
+    if forced in ("chrome", "edge", "firefox"):
+        if log_it:
+            log("browser: forced by %s=%s" % (FORCED_BROWSER_ENV, forced))
+        if forced == "chrome":
+            path = find_system_chrome()
+        elif forced == "edge":
+            path = find_system_edge()
+        else:
+            path = find_bundled_firefox()
+        if not path:
+            raise RuntimeError(STRINGS["no_browser"])
+        return forced, path, "env:" + forced
+    path = find_system_chrome()
+    if path:
+        return "chrome", path, "system:chrome"
+    path = find_system_edge()
+    if path:
+        return "edge", path, "system:edge"
+    path = find_bundled_firefox()
+    if path:
+        return "firefox", path, "bundled:firefox"
+    if os.path.isdir(bundled_browser_dir()):
+        raise RuntimeError(STRINGS["bundled_browser_missing"])
+    raise RuntimeError(STRINGS["no_browser"])
+
+
+def describe_pick():
+    """One-line summary for RUN_CHECK.bat: what the launcher would pick.
+
+    Never raises, never writes to the launcher log.
+    """
     try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\Shell\Associations"
-            r"\UrlAssociations\http\UserChoice",
-        ) as key:
-            prog_id, _ = winreg.QueryValueEx(key, "ProgId")
-    except OSError:
-        return False
-    return prog_id in (
-        "ChromeHTML",
-        "MSEdgeHTM",
-        "FirefoxURL-308046B0AF4A39CB",
-    )
+        kind, path, source = resolve_browser(log_it=False)
+    except RuntimeError as exc:
+        return "launcher would pick: NONE (%s)" % exc
+    except Exception as exc:                # noqa: BLE001 - diagnostics
+        return "launcher would pick: UNKNOWN (%r)" % (exc,)
+    return "launcher would pick: %s [%s] %s" % (kind, path, source)
 
 
 def launch_browser():
-    """Open the app page in a chromeless window.
+    """Open the app page in a normal windowed app window.
 
-    Returns (proc, profile_dir, kind): proc is the Popen object (None for
-    the default-browser fallback, where close-detection is impossible),
-    profile_dir the fresh per-launch profile (firefox lifetime is tracked
-    through it), kind one of "chrome"/"edge"/"firefox"/None.
-    Raises RuntimeError with an Arabic message when no suitable browser
-    exists.
+    The taskbar stays visible; minimize, maximize, close and Alt+Tab all
+    keep working, so the operator is never locked in. Returns
+    (proc, profile_dir, kind); profile_dir is the fresh per-launch profile
+    (close-detection for Firefox runs through it). Raises RuntimeError
+    with an Arabic message when no suitable browser exists.
     """
-    bundled_dir, bundled = find_bundled_browser()
-
-    # 1) Bundled portable browser.
-    if bundled:
-        kind, path = bundled
-        log("browser: bundled %s -> %s" % (kind, path))
-        proc, profile_dir = _spawn(kind, path)
-        return proc, profile_dir, kind
-
-    # 2) System Chrome -> Edge -> Firefox.
-    kind, path = find_system_browser()
-    if path:
-        log("browser: system %s -> %s" % (kind, path))
-        proc, profile_dir = _spawn(kind, path)
-        return proc, profile_dir, kind
-
-    # 3) Default browser - only if positively Chrome/Edge/Firefox.
-    if default_browser_is_supported():
-        log("browser: default browser (supported ProgId)")
-        open_url_default_browser(URL)
-        return None, None, None
-
-    # 4) Nothing usable. Distinguish "bundled dir exists but empty" for
-    #    a more specific Arabic message.
-    if os.path.isdir(bundled_dir):
-        log("browser: none found; bundled dir exists but no exe")
-        raise RuntimeError(STRINGS["bundled_browser_missing"])
-    log("browser: none found")
-    raise RuntimeError(STRINGS["no_browser"])
+    kind, path, source = resolve_browser()
+    log("browser: %s -> %s [%s]" % (kind, path, source))
+    proc, profile_dir = _spawn(kind, path)
+    return proc, profile_dir, kind
 
 
 def _browser_profile_dir():
@@ -360,35 +385,57 @@ def _sweep_old_profiles(temp_root, keep=3):
             pass                      # locked by a live browser - fine
 
 
-def _spawn(kind, exe_path):
-    """Start the browser with app/kiosk flags and return the Popen.
+def chrome_args(exe_path, profile_dir):
+    """Windowed --app command line for Chrome/Edge. Never --kiosk, never
+    fullscreen: the window keeps normal title-bar controls and the taskbar
+    stays visible. A fresh --user-data-dir per launch is mandatory, or the
+    new process hands off to an already-running Chrome and exits at once.
+    """
+    return [
+        exe_path,
+        "--app=" + URL,
+        "--user-data-dir=" + profile_dir,
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-session-crashed-bubble",
+        "--disable-features=Translate",
+        "--window-position=0,0",
+        "--window-size=1280,680",
+    ]
 
-    Returns (Popen, profile_dir): the profile dir identifies the real
-    browser process (see FirefoxWatcher), because Firefox's first
+
+def firefox_args(exe_path, profile_dir):
+    """Windowed fallback command line for the bundled Firefox ESR.
+
+    Plain window (--new-window on a fresh -profile, taskbar visible).
+    Never --kiosk. -wait-for-browser keeps the first process usable for
+    terminate(); lifetime detection still uses the profile lock below.
+    """
+    return [
+        exe_path,
+        "-wait-for-browser",
+        "-profile",
+        profile_dir,
+        "--new-window",
+        URL,
+        "-no-remote",
+    ]
+
+
+def _spawn(kind, exe_path):
+    """Start the browser windowed and return (Popen, profile_dir).
+
+    The exact command line is logged (localhost URL + temp profile only,
+    no secrets). Returns (Popen, profile_dir): the profile dir identifies
+    the real browser process (see FirefoxWatcher), because Firefox's first
     process exits at once while the real window keeps running.
     """
     profile_dir = _browser_profile_dir()
     if kind in ("chrome", "edge"):
-        args = [
-            exe_path,
-            "--app=" + URL,
-            "--start-maximized",
-            "--no-first-run",
-            "--user-data-dir=" + profile_dir,
-        ]
+        args = chrome_args(exe_path, profile_dir)
     else:  # firefox
-        # -wait-for-browser exists in Firefox 115 ESR (verified): the
-        # first process then stays alive too. Lifetime detection still
-        # uses the profile-dir poll below, so nothing depends on the flag.
-        args = [
-            exe_path,
-            "-wait-for-browser",
-            "--kiosk",
-            URL,
-            "-no-remote",
-            "-profile",
-            profile_dir,
-        ]
+        args = firefox_args(exe_path, profile_dir)
+    log("browser command: " + " ".join('"%s"' % a for a in args))
     return subprocess.Popen(args), profile_dir
 
 
@@ -445,25 +492,21 @@ def python_exe():
 
 def browser_search_summary():
     """One-line summary of the browser search, for launcher.log."""
-    bundled_dir = os.path.join(BASE_DIR, "runtime", "browser")
     try:
-        _bdir, bundled = find_bundled_browser()
-        bundled_txt = bundled[1] if bundled else "none"
+        chrome = find_system_chrome()
     except Exception as exc:
-        bundled_txt = "search failed: %r" % (exc,)
+        chrome = "search failed: %r" % (exc,)
     try:
-        _kind, sys_path = find_system_browser()
-        system_txt = sys_path if sys_path else "none"
+        edge = find_system_edge()
     except Exception as exc:
-        system_txt = "search failed: %r" % (exc,)
+        edge = "search failed: %r" % (exc,)
     try:
-        default_txt = str(bool(default_browser_is_supported()))
+        firefox = find_bundled_firefox()
     except Exception as exc:
-        default_txt = "search failed: %r" % (exc,)
-    return (
-        "bundled_dir=%s bundled=%s system=%s default_supported=%s"
-        % (bundled_dir, bundled_txt, system_txt, default_txt)
-    )
+        firefox = "search failed: %r" % (exc,)
+    return "chrome=%s edge=%s bundled_firefox=%s forced=%s" % (
+        chrome or "none", edge or "none", firefox or "none",
+        os.environ.get(FORCED_BROWSER_ENV, "").strip() or "none")
 
 
 def browser_fatal(server_proc, message):
@@ -496,18 +539,27 @@ def browser_fatal(server_proc, message):
 
 
 # ---------------------------------------------------------------------------
-# Browser lifetime: profile lock, never the first process (BROWSER-2)
+# Browser lifetime: process handle for Chrome/Edge, profile lock for
+# Firefox - never wmic/taskkill/subprocess polling (a hidden pythonw
+# spawning those flashes a console window on every poll).
 # ---------------------------------------------------------------------------
+# Chrome/Edge are started with a FRESH --user-data-dir per launch, so the
+# new process cannot hand off to an already-running Chrome and exit at
+# once: the PID we started stays the browser's main process until its
+# last window closes. Close is therefore detected straight from that
+# process handle (Popen.poll() plus an OpenProcess/GetExitCodeProcess
+# probe via ctypes - os.kill(pid, 0) would TERMINATE on Windows and is
+# never used as a probe here).
+#
 # Firefox on Windows starts through a launcher process: the first
 # firefox.exe exits at once (rc 0 after ~0.3 s, verified) while the real
 # window keeps running. Waiting on the Popen handle therefore stops the
-# server while the kiosk window is still open.
+# server while the window is still open.
 #
 # Lifetime comes from the profile lock instead, with zero subprocess
-# calls (a hidden pythonw spawning wmic/taskkill flashes a console
-# window on every poll): Firefox holds an exclusive lock on
+# calls: Firefox holds an exclusive lock on
 # <profile>/parent.lock while it runs. Verified live with Firefox 115:
-# absent before launch, locked within ~1 s of kiosk open, released on
+# absent before launch, locked within ~1 s of window open, released on
 # close. -wait-for-browser (verified present in 115) additionally keeps
 # the Popen handle usable, so closing also needs no taskkill.
 #
@@ -551,6 +603,53 @@ def profile_lock_state(profile_dir):
         return True, False
     except Exception:
         return False, False
+
+
+def _pid_alive(pid):
+    """True while the given PID is still running. Windows-safe liveness
+    probe: OpenProcess + GetExitCodeProcess via ctypes. NOTE: os.kill(pid,
+    0) on Windows TERMINATES the process (only CTRL_C/CTRL_BREAK are
+    special-cased), so it must never be used as a probe. No subprocess
+    calls, so no console window can flash. Never raises.
+    """
+    if pid <= 0:
+        return False
+    try:
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong()
+                ok = kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(code))
+                return bool(ok) and code.value == 259  # STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        else:
+            os.kill(pid, 0)
+            return True
+    except OSError:
+        return False
+
+
+def _process_alive(proc):
+    """True while our started browser process still runs.
+
+    Popen.poll() checks the already-open process handle (no new process,
+    no flashing console); the ctypes OpenProcess probe backs it up.
+    """
+    try:
+        if proc.poll() is not None:
+            return False
+    except OSError:
+        return False
+    try:
+        return _pid_alive(proc.pid)
+    except Exception:
+        return False
 
 
 class FirefoxWatcher(object):
@@ -653,7 +752,9 @@ def wait_for_browser_exit(browser_proc, profile_dir, kind, server_proc):
                 log("launcher exit (heartbeat timeout)")
                 _hard_exit(0)
         if kind in ("chrome", "edge"):
-            if browser_proc is not None and browser_proc.poll() is not None:
+            # Fresh --user-data-dir per launch means this PID is the real
+            # browser process: when it is gone, the window is closed.
+            if browser_proc is not None and not _process_alive(browser_proc):
                 return "closed"
         elif watcher is not None:
             if not watcher.alive():
@@ -720,8 +821,9 @@ def main():
         log("default-browser fallback: no close detection")
 
     # --- Wait for the browser window to close --------------------------------
-    # Firefox lifetime comes from profile-dir polling (its first process
-    # exits at once); Chrome/Edge use the Popen handle. The loop also
+    # Chrome/Edge lifetime comes from the started process handle (fresh
+    # profile per launch, so no handoff); Firefox lifetime comes from
+    # profile-dir polling (its first process exits at once). The loop also
     # honors the UI quit action and the page heartbeat (both stop
     # everything and exit from inside the loop).
     try:

@@ -106,6 +106,101 @@ class TestLaunchConfig(unittest.TestCase):
                            "@container"):
                 self.assertNotIn(banned, css, name)
 
+    def test_chrome_cmdline_windowed(self):
+        profile = os.path.join("T:", "prof1")
+        args = launcher.chrome_args("C:\\c\\chrome.exe", profile)
+        joined = " ".join(args)
+        self.assertIn("--app=" + launcher.URL, joined)
+        self.assertIn("--user-data-dir=" + profile, joined)
+        for flag in ("--no-first-run", "--no-default-browser-check",
+                     "--disable-session-crashed-bubble",
+                     "--disable-features=Translate",
+                     "--window-position=0,0", "--window-size=1280,680"):
+            self.assertIn(flag, args)
+        self.assertNotIn("--kiosk", args)
+        self.assertFalse(any("kiosk" in a.lower() for a in args))
+        self.assertFalse(any("maximiz" in a.lower() or "fullscreen" in a.lower()
+                             for a in args))
+        # A different profile dir gives a different (unique) command line.
+        other = launcher.chrome_args("C:\\c\\chrome.exe",
+                                     os.path.join("T:", "prof2"))
+        self.assertNotEqual(args, other)
+
+    def test_firefox_cmdline_no_kiosk(self):
+        args = launcher.firefox_args("C:\\b\\firefox.exe", "C:\\prof")
+        self.assertNotIn("--kiosk", args)
+        self.assertFalse(any("kiosk" in a.lower() for a in args))
+        self.assertIn("--new-window", args)
+        self.assertIn(launcher.URL, args)
+        self.assertIn("C:\\prof", args)
+
+    def test_no_kiosk_in_code(self):
+        # "--kiosk" may appear in comments explaining the ban, never in code.
+        import io
+        import tokenize
+        with open(os.path.join(_APP_DIR, "launcher.py"),
+                  encoding="utf-8") as f:
+            text = f.read()
+        code = []
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type in (tokenize.STRING, tokenize.COMMENT,
+                            tokenize.NL, tokenize.NEWLINE,
+                            tokenize.INDENT, tokenize.DEDENT,
+                            tokenize.ENDMARKER, tokenize.ENCODING):
+                continue
+            code.append(tok.string)
+        self.assertNotIn("--kiosk", " ".join(code))
+
+    def test_browser_resolution_order(self):
+        real_chrome = launcher.find_system_chrome
+        real_edge = launcher.find_system_edge
+        real_ff = launcher.find_bundled_firefox
+        old_env = os.environ.get(launcher.FORCED_BROWSER_ENV)
+        if launcher.FORCED_BROWSER_ENV in os.environ:
+            del os.environ[launcher.FORCED_BROWSER_ENV]
+        try:
+            launcher.find_system_chrome = lambda: "C:\\c\\chrome.exe"
+            launcher.find_system_edge = lambda: "C:\\e\\msedge.exe"
+            launcher.find_bundled_firefox = lambda: "C:\\b\\firefox.exe"
+            self.assertEqual(launcher.resolve_browser()[0], "chrome")
+            launcher.find_system_chrome = lambda: None
+            self.assertEqual(launcher.resolve_browser()[0], "edge")
+            launcher.find_system_edge = lambda: None
+            self.assertEqual(launcher.resolve_browser()[0], "firefox")
+            launcher.find_bundled_firefox = lambda: None
+            with self.assertRaises(RuntimeError):
+                launcher.resolve_browser()
+            # Forced browser wins over the normal order...
+            launcher.find_system_chrome = lambda: "C:\\c\\chrome.exe"
+            launcher.find_system_edge = lambda: "C:\\e\\msedge.exe"
+            launcher.find_bundled_firefox = lambda: "C:\\b\\firefox.exe"
+            os.environ[launcher.FORCED_BROWSER_ENV] = "edge"
+            kind, _path, source = launcher.resolve_browser()
+            self.assertEqual(kind, "edge")
+            self.assertTrue(source.startswith("env:"))
+            # ...and a forced-but-missing browser is fatal, not silent.
+            os.environ[launcher.FORCED_BROWSER_ENV] = "firefox"
+            launcher.find_bundled_firefox = lambda: None
+            with self.assertRaises(RuntimeError):
+                launcher.resolve_browser()
+            # Unknown values are ignored (normal order applies).
+            os.environ[launcher.FORCED_BROWSER_ENV] = "safari"
+            self.assertEqual(launcher.resolve_browser()[0], "chrome")
+        finally:
+            launcher.find_system_chrome = real_chrome
+            launcher.find_system_edge = real_edge
+            launcher.find_bundled_firefox = real_ff
+            if old_env is None:
+                os.environ.pop(launcher.FORCED_BROWSER_ENV, None)
+            else:
+                os.environ[launcher.FORCED_BROWSER_ENV] = old_env
+
+    def test_pid_alive_self(self):
+        # Our own process is alive; nonsense PIDs are not. Never raises.
+        self.assertTrue(launcher._pid_alive(os.getpid()))
+        self.assertFalse(launcher._pid_alive(0))
+        self.assertFalse(launcher._pid_alive(-5))
+
     def test_no_arabic_outside_strings(self):
         # ALL Arabic text lives in strings.js; HTML and other JS files must
         # not contain Arabic characters (symbols like arrows are fine).

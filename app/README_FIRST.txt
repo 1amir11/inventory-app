@@ -25,3 +25,4 @@ KITCHEN INVENTORY - READ FIRST
 7. NEVER put real data inside the program files; data\ is created empty and is never overwritten on code updates (to update: replace everything EXCEPT data\).
 8. Demo only: start_demo.bat builds fake history into data_demo\ (DEMO badge shows); data_demo\ can be deleted after the demo.
 9. The app uses port 8001 (8000 belongs to the cafeteria POS). Do not change Windows settings. The Egypt timezone is set by the manager separately.
+10. The app opens in a normal Chrome window (NOT fullscreen): the taskbar stays visible, and you can minimize the window or Alt+Tab to other programs while it keeps running. To stop everything, use the in-app "close program" button, or just close the window - the server then stops by itself (at the latest about a minute later, after the heartbeat timeout). If Chrome is missing, the app uses Edge, then the bundled Firefox.

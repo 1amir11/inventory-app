@@ -57,8 +57,10 @@ KIOSK.uicheck = (function () {
           " clientWidth=" + toolbars[t].clientWidth);
       }
     }
-    if (out.doc.sh > 650) bad("page-vscroll", document.body, "sh=" + out.doc.sh);
-    if (out.doc.sw > 1024) bad("page-hscroll", document.body, "sw=" + out.doc.sw);
+    /* No page scroll at ANY window size: the fixed 1024x650 app must fit
+       inside the current viewport (at 1024x650 this is exact). */
+    if (out.doc.sh > out.viewport.h) bad("page-vscroll", document.body, "sh=" + out.doc.sh);
+    if (out.doc.sw > out.viewport.w) bad("page-hscroll", document.body, "sw=" + out.doc.sw);
 
     var els = document.querySelectorAll(
       "button, input, select, textarea, th, td, label, .chip, .tab");
