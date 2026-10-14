@@ -436,7 +436,18 @@ def _spawn(kind, exe_path):
     else:  # firefox
         args = firefox_args(exe_path, profile_dir)
     log("browser command: " + " ".join('"%s"' % a for a in args))
-    return subprocess.Popen(args), profile_dir
+    # The launcher itself runs hidden (pythonw, no console): without an
+    # explicit show-window hint the child can inherit that hidden state
+    # and open MINIMIZED, forcing the operator to hunt the taskbar.
+    # SW_SHOWNORMAL opens a plain visible window instead. Server startup
+    # intentionally does NOT use this (it must stay hidden).
+    startupinfo = None
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 1  # SW_SHOWNORMAL
+    return (subprocess.Popen(args, startupinfo=startupinfo),
+            profile_dir)
 
 
 # ---------------------------------------------------------------------------
